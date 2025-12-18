@@ -1,5 +1,5 @@
 import React, { useState, useMemo, useEffect, useRef } from 'react';
-import { Plus, Trash2, Calculator, Save, ExternalLink, Link, ChevronDown, Check, Layers, FolderPlus, Download, Upload, Eye, X, FileText, Image as ImageIcon, PlayCircle, MonitorPlay, Facebook, Video, Search, ArrowUpRight, ArrowDownRight, MoreHorizontal } from 'lucide-react';
+import { Plus, Trash2, Calculator, Save, ExternalLink, Link, ChevronDown, Check, Layers, FolderPlus, Download, Upload, Eye, X, FileText, Image as ImageIcon, PlayCircle, MonitorPlay, Facebook, Video, Search } from 'lucide-react';
 
 // --- IMPORT FIREBASE ---
 import { db } from '../firebase';
@@ -32,47 +32,86 @@ export default function AdsManager() {
   const [newCourseName, setNewCourseName] = useState("");
   const fileInputRef = useRef(null);
 
-  // --- RENDER MEDIA CONTENT ---
+  // --- RENDER MEDIA CONTENT (SMART FIT) ---
   const renderMediaContent = (url) => {
+    // Wrapper chung để căn giữa mọi thứ
+    const wrapperClass = "w-full h-full flex items-center justify-center bg-black overflow-hidden relative";
+
     if (!url) return (
-      <div className="flex flex-col items-center justify-center h-full text-slate-400">
-         <div className="bg-slate-800/50 p-6 rounded-full mb-4 ring-1 ring-slate-700"><ImageIcon size={48} className="opacity-50"/></div>
-         <p className="text-sm font-medium text-slate-300">Chưa có nội dung Media</p>
-         <p className="text-xs opacity-50 mt-1">Chọn bài từ thư viện hoặc dán link</p>
+      <div className={`${wrapperClass} bg-slate-900`}>
+         <div className="text-center">
+            <div className="bg-slate-800 p-4 rounded-full mb-3 inline-block"><ImageIcon size={32} className="text-slate-500"/></div>
+            <p className="text-slate-400 text-sm">Chưa có Media</p>
+         </div>
       </div>
     );
 
+    // 1. FACEBOOK (Video & Post)
     if (url.includes('facebook.com') || url.includes('fb.watch')) {
         const encodedUrl = encodeURIComponent(url);
-        if (url.includes('/videos/') || url.includes('/watch') || url.includes('fb.watch')) {
-            return <iframe src={`https://www.facebook.com/plugins/video.php?href=${encodedUrl}&show_text=false&t=0`} className="w-full h-full rounded-xl shadow-2xl bg-black" style={{border: 'none', overflow: 'hidden'}} allowFullScreen={true}></iframe>;
-        }
-        return <iframe src={`https://www.facebook.com/plugins/post.php?href=${encodedUrl}&show_text=true`} className="w-full h-full rounded-xl shadow-2xl bg-white" style={{border: 'none', overflow: 'hidden'}} allowFullScreen={true}></iframe>;
+        const isVideo = url.includes('/videos/') || url.includes('/watch') || url.includes('fb.watch');
+        return (
+            <div className={wrapperClass}>
+                <iframe 
+                    src={`https://www.facebook.com/plugins/${isVideo ? 'video' : 'post'}.php?href=${encodedUrl}&show_text=${!isVideo}&t=0`} 
+                    className="w-full h-full border-none" 
+                    allowFullScreen={true}
+                    style={{maxWidth: '100%', maxHeight: '100%'}} // Đảm bảo không tràn
+                ></iframe>
+            </div>
+        );
     }
 
+    // 2. YOUTUBE
     if (url.includes('youtube.com') || url.includes('youtu.be')) {
       let embedUrl = url.includes('watch?v=') ? url.replace('watch?v=', 'embed/') : url.replace('youtu.be/', 'youtube.com/embed/');
       embedUrl = embedUrl.split('&')[0]; 
-      return <iframe src={embedUrl} className="w-full h-full rounded-xl bg-black shadow-2xl" allowFullScreen></iframe>;
+      return (
+          <div className={wrapperClass}>
+            <iframe src={embedUrl} className="w-full h-full border-none" allowFullScreen></iframe>
+          </div>
+      );
     }
 
+    // 3. GOOGLE DRIVE
     if (url.includes('drive.google.com') && url.includes('/view')) {
-        return <iframe src={url.replace('/view', '/preview')} className="w-full h-full rounded-xl bg-black shadow-2xl" allowFullScreen></iframe>;
+        return (
+            <div className={wrapperClass}>
+                <iframe src={url.replace('/view', '/preview')} className="w-full h-full border-none" allowFullScreen></iframe>
+            </div>
+        );
     }
 
+    // 4. VIDEO FILE TRỰC TIẾP (.mp4)
     if (url.match(/\.(mp4|webm|mov)$/i)) {
-       return <video src={url} controls className="w-full h-full rounded-xl bg-black shadow-2xl" />;
+       return (
+         <div className={wrapperClass}>
+            {/* object-contain: Giữ nguyên tỷ lệ, thu nhỏ để vừa khung */}
+            <video src={url} controls className="max-w-full max-h-full w-auto h-auto object-contain outline-none shadow-2xl" />
+         </div>
+       );
     }
 
+    // 5. ẢNH TRỰC TIẾP
     if (url.match(/\.(jpeg|jpg|gif|png|webp|svg)$/i)) {
-       return <img src={url} alt="Media" className="w-full h-full object-contain rounded-xl bg-slate-900/50 shadow-2xl backdrop-blur-sm"/>;
+       return (
+         <div className={wrapperClass}>
+            {/* object-contain: Ảnh không bao giờ bị méo, luôn hiển thị full tấm */}
+            <img src={url} alt="Media" className="max-w-full max-h-full w-auto h-auto object-contain shadow-2xl" />
+         </div>
+       );
     }
 
+    // 6. LINK KHÁC
     return (
-        <div className="flex flex-col items-center justify-center h-full bg-slate-900/80 text-white p-8 text-center rounded-xl border border-slate-700/50 backdrop-blur-md">
-            <MonitorPlay size={56} className="mb-4 text-blue-400 animate-pulse"/>
-            <h3 className="text-lg font-bold mb-2">Nguồn Bên Ngoài</h3>
-            <a href={url} target="_blank" rel="noreferrer" className="bg-blue-600 hover:bg-blue-500 text-white px-6 py-2.5 rounded-full font-bold flex items-center gap-2 transition-all shadow-lg shadow-blue-500/30 text-sm mt-4"><ExternalLink size={16}/> Mở Liên Kết</a>
+        <div className={`${wrapperClass} bg-slate-900`}>
+            <div className="text-center p-6">
+                <MonitorPlay size={48} className="mx-auto mb-4 text-blue-500 animate-pulse"/>
+                <h3 className="text-white font-bold mb-2">Nguồn Bên Ngoài</h3>
+                <a href={url} target="_blank" rel="noreferrer" className="inline-flex items-center gap-2 bg-blue-600 hover:bg-blue-500 text-white px-6 py-2 rounded-full font-bold transition-all shadow-lg text-sm mt-2">
+                    <ExternalLink size={16}/> Mở Liên Kết
+                </a>
+            </div>
         </div>
     );
   };
@@ -172,7 +211,6 @@ export default function AdsManager() {
 
   return (
     <div className="bg-[#f8fafc] min-h-screen font-sans text-xs text-slate-700" onClick={() => setIsMenuOpen(false)}>
-      {/* GLOBAL STYLE FOR SCROLLBAR */}
       <style>{`
         ::-webkit-scrollbar { width: 6px; height: 6px; }
         ::-webkit-scrollbar-track { background: transparent; }
@@ -181,18 +219,21 @@ export default function AdsManager() {
         .glass-header { background: rgba(255, 255, 255, 0.85); backdrop-filter: blur(8px); }
       `}</style>
 
-      {/* --- MODAL CINEMA MODE (DARK THEME) --- */}
+      {/* --- MODAL CINEMA MODE (SMART FIT) --- */}
       {previewItem && (
-        <div className="fixed inset-0 z-[9999] bg-slate-950/90 backdrop-blur-md flex items-center justify-center p-4 md:p-8 animate-in fade-in duration-200">
+        <div className="fixed inset-0 z-[9999] bg-slate-950/95 backdrop-blur-md flex items-center justify-center p-4 md:p-6 animate-in fade-in duration-200">
            <div className="absolute inset-0" onClick={() => setPreviewItem(null)}></div>
-           <div className="bg-[#0f172a] rounded-2xl shadow-2xl w-full max-w-[1400px] h-full max-h-[90vh] flex overflow-hidden relative z-10 border border-slate-800 animate-in zoom-in-95 duration-300 flex-col lg:flex-row">
-              <button onClick={() => setPreviewItem(null)} className="absolute top-4 right-4 z-50 bg-black/40 hover:bg-red-500 text-white p-2 rounded-full transition-all backdrop-blur border border-white/10"><X size={18}/></button>
+           <div className="bg-[#0f172a] rounded-xl shadow-2xl w-full max-w-[95vw] h-[90vh] flex overflow-hidden relative z-10 border border-slate-800 animate-in zoom-in-95 duration-300 flex-col lg:flex-row">
+              <button onClick={() => setPreviewItem(null)} className="absolute top-3 right-3 z-50 bg-black/50 hover:bg-red-600 text-white p-2 rounded-full transition-all backdrop-blur border border-white/10"><X size={18}/></button>
 
-              <div className="w-full lg:w-2/3 bg-black flex flex-col relative group justify-center items-center h-[50vh] lg:h-auto border-b lg:border-b-0 lg:border-r border-slate-800">
-                  <div className="flex-1 w-full h-full flex items-center justify-center p-2 lg:p-6 overflow-hidden">
+              <div className="w-full lg:w-2/3 bg-black flex flex-col relative group h-[50vh] lg:h-full border-b lg:border-b-0 lg:border-r border-slate-800">
+                  <div className="flex-1 w-full h-full relative">
+                      {/* MEDIA CHÍNH Ở ĐÂY - TỰ ĐỘNG KHÍT KHUNG */}
                       {renderMediaContent(previewItem.mediaUrl)}
                   </div>
-                  <div className="w-full p-4 bg-gradient-to-t from-black via-black/80 to-transparent absolute bottom-0 left-0 opacity-0 group-hover:opacity-100 transition-opacity duration-300">
+                  
+                  {/* THANH NHẬP LINK (Hiện khi hover) */}
+                  <div className="w-full p-4 bg-gradient-to-t from-black via-black/80 to-transparent absolute bottom-0 left-0 opacity-0 group-hover:opacity-100 transition-opacity duration-300 z-20">
                      <div className="flex items-center gap-2 max-w-2xl mx-auto bg-slate-800/90 backdrop-blur rounded-full px-4 py-2 border border-slate-600 shadow-xl">
                          <Link size={14} className="text-blue-400 shrink-0"/>
                          <input value={previewItem.mediaUrl || ""} onChange={(e) => update(previewItem.id, 'mediaUrl', e.target.value)} placeholder="Dán link Facebook / YouTube / Ảnh..." className="flex-1 bg-transparent text-white text-xs outline-none placeholder-slate-500"/>
@@ -200,30 +241,29 @@ export default function AdsManager() {
                   </div>
               </div>
 
-              <div className="w-full lg:w-1/3 flex flex-col bg-white h-[50vh] lg:h-auto">
-                  <div className="p-5 border-b border-slate-100 bg-slate-50 flex justify-between items-start">
+              <div className="w-full lg:w-1/3 flex flex-col bg-white h-[50vh] lg:h-full">
+                  <div className="p-4 border-b border-slate-100 bg-slate-50 flex justify-between items-start">
                       <div>
                           <h3 className="font-bold text-base text-slate-800 flex items-center gap-2 mb-1"><FileText size={18} className="text-blue-600"/> Soạn Thảo Content</h3>
                           <div className="flex items-center gap-2">
                              <span className="text-[10px] text-slate-400">Campaign:</span>
-                             <span className="text-[10px] font-bold text-blue-700 bg-blue-50 px-2 py-0.5 rounded border border-blue-100 truncate max-w-[150px]">{previewItem.contentName || "..."}</span>
+                             <span className="text-[10px] font-bold text-blue-700 bg-blue-50 px-2 py-0.5 rounded border border-blue-100 truncate max-w-[200px]">{previewItem.contentName || "Chưa đặt tên"}</span>
                           </div>
                       </div>
                       <span className="text-[10px] font-bold px-3 py-1 bg-slate-200 text-slate-600 rounded-full border border-slate-300">{previewItem.format}</span>
                   </div>
                   <div className="flex-1 relative bg-white">
-                      <textarea value={previewItem.contentFull || ""} onChange={(e) => update(previewItem.id, 'contentFull', e.target.value)} placeholder="Viết nội dung quảng cáo, tiêu đề, hastag... (Tự động lưu)" className="w-full h-full bg-transparent outline-none text-slate-700 text-sm leading-relaxed resize-none p-6 focus:bg-blue-50/10 transition-colors"></textarea>
+                      <textarea value={previewItem.contentFull || ""} onChange={(e) => update(previewItem.id, 'contentFull', e.target.value)} placeholder="Viết nội dung quảng cáo, tiêu đề, hastag... (Tự động lưu)" className="w-full h-full bg-transparent outline-none text-slate-700 text-sm leading-7 resize-none p-5 focus:bg-blue-50/10 transition-colors"></textarea>
                   </div>
               </div>
            </div>
         </div>
       )}
 
-      {/* --- HEADER CONTROL CENTER --- */}
+      {/* --- HEADER --- */}
       <div className="sticky top-0 z-40 glass-header border-b border-slate-200/60 shadow-sm px-4 py-3 mb-4">
         <div className="max-w-[1920px] mx-auto flex flex-col md:flex-row justify-between items-center gap-3">
           <div className="flex items-center gap-3 w-full md:w-auto">
-            {/* Menu Dropdown Premium */}
             <div className="relative" onClick={(e) => e.stopPropagation()}>
               <button onClick={() => setIsMenuOpen(!isMenuOpen)} className="flex items-center gap-3 bg-white text-slate-700 px-4 py-2 rounded-xl font-bold border border-slate-200 hover:border-blue-300 hover:shadow-md hover:text-blue-700 transition-all min-w-[200px] justify-between group active:scale-95">
                 <span className="flex items-center gap-2.5">
@@ -259,8 +299,6 @@ export default function AdsManager() {
                 </div>
               )}
             </div>
-
-            {/* Stat Badge */}
             <div className="hidden md:flex items-center gap-2 px-3 py-2 bg-slate-100 text-slate-600 rounded-lg text-xs font-bold border border-slate-200">
                <div className="w-2 h-2 rounded-full bg-green-500 animate-pulse"></div>
                {filteredData.length} Camp
@@ -278,7 +316,6 @@ export default function AdsManager() {
         </div>
       </div>
 
-      {/* --- DATA TABLE --- */}
       <div className="px-4 pb-20">
         <div className="bg-white rounded-xl shadow-[0_2px_15px_-3px_rgba(0,0,0,0.07),0_10px_20px_-2px_rgba(0,0,0,0.04)] border border-slate-200 overflow-hidden">
             <div className="overflow-x-auto custom-scrollbar">
@@ -317,7 +354,6 @@ export default function AdsManager() {
                     </tr>
                 </thead>
                 <tbody className="text-xs">
-                    {/* STICKY SUMMARY ROW */}
                     <tr className="bg-slate-50 font-bold border-b-2 border-slate-200 sticky top-0 z-20 shadow-sm text-slate-700">
                         <td className="p-3 text-center text-rose-600 font-extrabold" colSpan={6}>📊 TỔNG KẾT ({currentView})</td>
                         <td className="p-3 text-right text-slate-400">-</td>
@@ -387,13 +423,6 @@ export default function AdsManager() {
                 </tbody>
                 </table>
             </div>
-            {filteredData.length === 0 && (
-                <div className="p-10 text-center text-slate-400 flex flex-col items-center">
-                    <Layers size={48} className="mb-2 opacity-20"/>
-                    <p>Chưa có dữ liệu cho khóa này.</p>
-                    <button onClick={addNew} className="mt-4 text-blue-600 font-bold hover:underline">Thêm dòng mới ngay</button>
-                </div>
-            )}
         </div>
       </div>
     </div>
