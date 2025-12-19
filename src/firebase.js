@@ -1,8 +1,9 @@
+// src/firebase.js
 import { initializeApp } from "firebase/app";
 import { getDatabase } from "firebase/database";
-import { getAuth } from "firebase/auth"; // <--- Mới thêm dòng này
+// [MỚI] Thêm Auth
+import { getAuth, GoogleAuthProvider } from "firebase/auth"; 
 
-// Cấu hình cũ của bạn (Giữ nguyên các mã số này)
 const firebaseConfig = {
   apiKey: "AIzaSyDr6pJNY5ThZz2NMox5lqXLR_gihyxrNFU",
   authDomain: "dangpkkzxy.firebaseapp.com",
@@ -16,4 +17,6 @@ const firebaseConfig = {
 
 const app = initializeApp(firebaseConfig);
 export const db = getDatabase(app);
-export const auth = getAuth(app); // <--- Mới thêm dòng này
+// [MỚI] Xuất Auth
+export const auth = getAuth(app);
+export const googleProvider = new GoogleAuthProvider();
