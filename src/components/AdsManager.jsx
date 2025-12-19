@@ -1,429 +1,442 @@
-import React, { useState, useMemo, useEffect, useRef } from 'react';
-import { Plus, Trash2, Calculator, Save, ExternalLink, Link, ChevronDown, Check, Layers, FolderPlus, Download, Upload, Eye, X, FileText, Image as ImageIcon, PlayCircle, MonitorPlay, Facebook, Video, Search } from 'lucide-react';
-
-// --- IMPORT FIREBASE ---
-import { db } from '../firebase';
-import { ref, onValue, set } from "firebase/database";
-
-const formatNumber = (val) => new Intl.NumberFormat('vi-VN').format(val);
-const parseNumber = (val) => parseInt(val.toString().replace(/\D/g, ''), 10) || 0;
+import React, { useState, useMemo, useEffect } from 'react';
+import { 
+  Plus, Search, Download, Filter, Eye, Edit, 
+  ChevronDown, ChevronUp, ChevronRight, 
+  Video, Image, ExternalLink, Save, Trash2, Link as LinkIcon, Calendar,
+  Undo, Redo, X, Settings, Check
+} from 'lucide-react';
 
 export default function AdsManager() {
-  const [courses, setCourses] = useState(['K36']);
-  const [data, setData] = useState([]);
-  const [loading, setLoading] = useState(true);
-  const [previewItem, setPreviewItem] = useState(null); 
-
-  // --- KẾT NỐI DATABASE ---
-  useEffect(() => {
-    const adsRef = ref(db, 'ads_data/list');
-    onValue(adsRef, (snapshot) => { setData(snapshot.val() || []); setLoading(false); });
-    const coursesRef = ref(db, 'ads_data/courses');
-    onValue(coursesRef, (snapshot) => { if (snapshot.val()) setCourses(snapshot.val()); });
-  }, []);
-
-  const saveToCloud = (newData, newCourses) => {
-    if(newData) set(ref(db, 'ads_data/list'), newData);
-    if(newCourses) set(ref(db, 'ads_data/courses'), newCourses);
+  // --- 1. CẤU HÌNH MẶC ĐỊNH ---
+  const INITIAL_CONFIG = {
+    courses: ["ALL", "K35", "K36", "K37"],
+    actions: ["Tăng", "Giữ", "Tắt", "Chờ", "Scale"],
+    evals: ["🌟 Tốt", "✅ Ổn", "💸 Lỗ", "⚠️ Kém", "🆕 New"],
+    formats: ["Video", "Image", "Reels", "Album"]
   };
 
-  const [currentView, setCurrentView] = useState('ALL'); 
-  const [isMenuOpen, setIsMenuOpen] = useState(false);
-  const [newCourseName, setNewCourseName] = useState("");
-  const fileInputRef = useRef(null);
+  // --- 2. DỮ LIỆU MẪU ---
+  const initialData = [
+    { 
+      id: "C01", 
+      date: "2025-12-19",
+      course: "K36", 
+      name: "Video Viral - Luật Hấp Dẫn", 
+      headline: "Bí mật thu hút tiền bạc",
+      content: "Nội dung...", format: "Video", link: "", media: "",
+      
+      budget: 5000000, 
+      spend: 1799981, 
+      mess: 55, 
+      
+      mong: 12, thanh: 5, 
+      price: 3500000, cost: 0,
 
-  // --- RENDER MEDIA CONTENT (SMART FIT) ---
-  const renderMediaContent = (url) => {
-    // Wrapper chung để căn giữa mọi thứ
-    const wrapperClass = "w-full h-full flex items-center justify-center bg-black overflow-hidden relative";
-
-    if (!url) return (
-      <div className={`${wrapperClass} bg-slate-900`}>
-         <div className="text-center">
-            <div className="bg-slate-800 p-4 rounded-full mb-3 inline-block"><ImageIcon size={32} className="text-slate-500"/></div>
-            <p className="text-slate-400 text-sm">Chưa có Media</p>
-         </div>
-      </div>
-    );
-
-    // 1. FACEBOOK (Video & Post)
-    if (url.includes('facebook.com') || url.includes('fb.watch')) {
-        const encodedUrl = encodeURIComponent(url);
-        const isVideo = url.includes('/videos/') || url.includes('/watch') || url.includes('fb.watch');
-        return (
-            <div className={wrapperClass}>
-                <iframe 
-                    src={`https://www.facebook.com/plugins/${isVideo ? 'video' : 'post'}.php?href=${encodedUrl}&show_text=${!isVideo}&t=0`} 
-                    className="w-full h-full border-none" 
-                    allowFullScreen={true}
-                    style={{maxWidth: '100%', maxHeight: '100%'}} // Đảm bảo không tràn
-                ></iframe>
-            </div>
-        );
+      orders: 0, rev: 0, rate: 0, cpm: 0, profit: 0, roas: 0, eval: "",
+      action: "Tăng", status: "ON"
     }
+  ];
 
-    // 2. YOUTUBE
-    if (url.includes('youtube.com') || url.includes('youtu.be')) {
-      let embedUrl = url.includes('watch?v=') ? url.replace('watch?v=', 'embed/') : url.replace('youtu.be/', 'youtube.com/embed/');
-      embedUrl = embedUrl.split('&')[0]; 
-      return (
-          <div className={wrapperClass}>
-            <iframe src={embedUrl} className="w-full h-full border-none" allowFullScreen></iframe>
-          </div>
-      );
-    }
+  // --- 3. STATE ---
+  const [history, setHistory] = useState([initialData]);
+  const [historyIndex, setHistoryIndex] = useState(0);
+  const data = history[historyIndex];
 
-    // 3. GOOGLE DRIVE
-    if (url.includes('drive.google.com') && url.includes('/view')) {
-        return (
-            <div className={wrapperClass}>
-                <iframe src={url.replace('/view', '/preview')} className="w-full h-full border-none" allowFullScreen></iframe>
-            </div>
-        );
-    }
+  // State cho Cấu hình (List tùy chỉnh)
+  const [config, setConfig] = useState(INITIAL_CONFIG);
+  const [showConfigModal, setShowConfigModal] = useState(false); // Bật tắt bảng cấu hình
 
-    // 4. VIDEO FILE TRỰC TIẾP (.mp4)
-    if (url.match(/\.(mp4|webm|mov)$/i)) {
-       return (
-         <div className={wrapperClass}>
-            {/* object-contain: Giữ nguyên tỷ lệ, thu nhỏ để vừa khung */}
-            <video src={url} controls className="max-w-full max-h-full w-auto h-auto object-contain outline-none shadow-2xl" />
-         </div>
-       );
-    }
+  const [filterCourse, setFilterCourse] = useState("ALL");
+  const [searchQuery, setSearchQuery] = useState("");
+  const [expandedRow, setExpandedRow] = useState(null);
+  const [sortConfig, setSortConfig] = useState({ key: null, direction: 'asc' });
 
-    // 5. ẢNH TRỰC TIẾP
-    if (url.match(/\.(jpeg|jpg|gif|png|webp|svg)$/i)) {
-       return (
-         <div className={wrapperClass}>
-            {/* object-contain: Ảnh không bao giờ bị méo, luôn hiển thị full tấm */}
-            <img src={url} alt="Media" className="max-w-full max-h-full w-auto h-auto object-contain shadow-2xl" />
-         </div>
-       );
-    }
+  const fmt = (num) => new Intl.NumberFormat('vi-VN').format(num || 0);
 
-    // 6. LINK KHÁC
-    return (
-        <div className={`${wrapperClass} bg-slate-900`}>
-            <div className="text-center p-6">
-                <MonitorPlay size={48} className="mx-auto mb-4 text-blue-500 animate-pulse"/>
-                <h3 className="text-white font-bold mb-2">Nguồn Bên Ngoài</h3>
-                <a href={url} target="_blank" rel="noreferrer" className="inline-flex items-center gap-2 bg-blue-600 hover:bg-blue-500 text-white px-6 py-2 rounded-full font-bold transition-all shadow-lg text-sm mt-2">
-                    <ExternalLink size={16}/> Mở Liên Kết
-                </a>
-            </div>
-        </div>
-    );
+  // --- 4. HÀM QUẢN LÝ LỊCH SỬ (UNDO/REDO) ---
+  const updateDataWithHistory = (newData) => {
+    const newHistory = history.slice(0, historyIndex + 1);
+    newHistory.push(newData);
+    setHistory(newHistory);
+    setHistoryIndex(newHistory.length - 1);
   };
 
-  // --- LOGIC ---
-  const uniqueCampaigns = useMemo(() => {
-    const map = new Map();
-    data.forEach(item => { if (item.contentName && !map.has(item.contentName)) map.set(item.contentName, item); });
-    return Array.from(map.values());
-  }, [data]);
+  const undo = () => { if (historyIndex > 0) setHistoryIndex(historyIndex - 1); };
+  const redo = () => { if (historyIndex < history.length - 1) setHistoryIndex(historyIndex + 1); };
 
-  const filteredData = useMemo(() => {
-    if (currentView === 'ALL') return data;
-    return data.filter(item => item.course === currentView);
-  }, [data, currentView]);
-
-  const calculateRow = (row) => {
-    const totalOrders = row.ordersMong + row.ordersThanh;
-    const pricePerMess = row.mess > 0 ? row.spent / row.mess : 0;
-    const closeRate = row.mess > 0 ? (totalOrders / row.mess) * 100 : 0;
-    const revenue = totalOrders * row.pricePerCourse;
-    const profit = revenue - row.spent - row.baseCost; 
-    const roas = row.spent > 0 ? revenue / row.spent : 0;
-    return { ...row, totalOrders, pricePerMess, closeRate, revenue, profit, roas };
+  // --- 5. LOGIC QUẢN LÝ LIST (THÊM/XÓA KHÓA, ACTION, EVAL) ---
+  
+  // Thêm item vào danh sách cấu hình
+  const addItemToConfig = (key, value) => {
+    if (value && !config[key].includes(value)) {
+      setConfig({ ...config, [key]: [...config[key], value] });
+      // Nếu thêm khóa mới, chuyển tab sang khóa đó luôn
+      if (key === 'courses') setFilterCourse(value);
+    }
   };
 
-  const summary = useMemo(() => filteredData.reduce((acc, curr) => {
-    const row = calculateRow(curr);
-    acc.spent += row.spent; acc.mess += row.mess;
-    acc.ordersMong += row.ordersMong; acc.ordersThanh += row.ordersThanh;
-    acc.revenue += row.revenue; acc.profit += row.profit;
-    return acc;
-  }, { spent: 0, mess: 0, ordersMong: 0, ordersThanh: 0, revenue: 0, profit: 0 }), [filteredData]);
+  // Xóa item khỏi danh sách
+  const removeItemFromConfig = (key, value) => {
+    if (confirm(`Bạn chắc chắn muốn xóa "${value}"?`)) {
+      const newList = config[key].filter(item => item !== value);
+      setConfig({ ...config, [key]: newList });
+      // Nếu xóa khóa đang chọn, về ALL
+      if (key === 'courses' && filterCourse === value) setFilterCourse("ALL");
+    }
+  };
 
-  const summaryRoas = summary.spent > 0 ? summary.revenue / summary.spent : 0;
-  const summaryTotalOrders = summary.ordersMong + summary.ordersThanh;
-  const summaryCloseRate = summary.mess > 0 ? (summaryTotalOrders / summary.mess) * 100 : 0;
-  const summaryPricePerMess = summary.mess > 0 ? summary.spent / summary.mess : 0;
+  // --- 6. LOGIC TÍNH TOÁN ---
+  const calculateMetrics = (item) => {
+    const totalOrders = (Number(item.mong) || 0) + (Number(item.thanh) || 0);
+    const revenue = totalOrders * (Number(item.price) || 0);
+    const cpm = item.mess > 0 ? Math.round(item.spend / item.mess) : 0;
+    const rate = item.mess > 0 ? ((totalOrders / item.mess) * 100).toFixed(1) : 0;
+    const profit = revenue - (item.spend || 0) - (item.cost || 0);
+    const roas = item.spend > 0 ? (revenue / item.spend).toFixed(2) : 0;
+    
+    // Gợi ý đánh giá (Chỉ gợi ý nếu chưa có giá trị)
+    let evaluation = item.eval || "🆕 New";
+    // Nếu chưa có đánh giá thủ công, dùng logic tự động
+    if (!item.manualEval && item.spend > 0) {
+        if (roas >= 4) evaluation = "🌟 Tốt";
+        else if (roas >= 2.5) evaluation = "✅ Ổn";
+        else evaluation = "💸 Lỗ";
+    }
+
+    return { ...item, orders: totalOrders, rev: revenue, cpm, rate, profit, roas, eval: item.manualEval || evaluation };
+  };
+
+  const handleUpdate = (id, field, value) => {
+    let rawValue = value;
+    const numericFields = ['budget', 'spend', 'mess', 'mong', 'thanh', 'price', 'cost'];
+    if (numericFields.includes(field)) rawValue = parseInt(value.replace(/\D/g, '')) || 0;
+
+    const updatedData = data.map(item => {
+      if (item.id === id) {
+        // Nếu người dùng chọn dropdown Đánh giá -> Ghi nhận là thủ công (manual)
+        if (field === 'eval') return { ...item, eval: rawValue, manualEval: rawValue };
+        return { ...item, [field]: rawValue };
+      }
+      return item;
+    });
+    updateDataWithHistory(updatedData);
+  };
+
+  // --- 7. FILTER & SORT & SUMMARY ---
+  const processedData = useMemo(() => {
+    let result = data.map(calculateMetrics);
+    if (filterCourse !== "ALL") result = result.filter(item => item.course === filterCourse);
+    if (searchQuery) result = result.filter(item => item.name.toLowerCase().includes(searchQuery.toLowerCase()));
+    
+    if (sortConfig.key) {
+      result.sort((a, b) => {
+        if (a[sortConfig.key] < b[sortConfig.key]) return sortConfig.direction === 'ascending' ? -1 : 1;
+        if (a[sortConfig.key] > b[sortConfig.key]) return sortConfig.direction === 'ascending' ? 1 : -1;
+        return 0;
+      });
+    }
+    return result;
+  }, [data, filterCourse, searchQuery, sortConfig, config]); // Re-run khi config thay đổi
+
+  const summary = useMemo(() => {
+    return processedData.reduce((acc, item) => ({
+      spend: acc.spend + (item.spend || 0),
+      mess: acc.mess + (item.mess || 0),
+      orders: acc.orders + (item.orders || 0),
+      rev: acc.rev + (item.rev || 0),
+      cost: acc.cost + (item.cost || 0),
+      profit: acc.profit + (item.profit || 0)
+    }), { spend: 0, mess: 0, orders: 0, rev: 0, cost: 0, profit: 0 });
+  }, [processedData]);
 
   // --- ACTIONS ---
-  const update = (id, field, value) => {
-    let newData = data.map(row => {
-      if (row.id === id) {
-        if (field === 'contentName') {
-           const existItem = uniqueCampaigns.find(c => c.contentName === value);
-           if (existItem) {
-             return { ...row, [field]: value, contentMain: existItem.contentMain, format: existItem.format, mediaUrl: existItem.mediaUrl || "", contentFull: existItem.contentFull || "" };
-           }
-        }
-        return { ...row, [field]: value };
-      }
-      return row;
-    });
-    setData(newData);
-    if (previewItem && previewItem.id === id) setPreviewItem(newData.find(r => r.id === id));
-    saveToCloud(newData, null);
-  };
-
-  const remove = (id) => { if(window.confirm("Xóa dòng này?")) { const newData = data.filter(r => r.id !== id); setData(newData); saveToCloud(newData, null); }};
-  
-  const addNew = () => {
-    const defaultCourse = currentView === 'ALL' ? courses[courses.length-1] : currentView;
+  const handleAddCampaign = () => {
+    const newId = `C${Math.floor(Math.random() * 10000)}`;
     const today = new Date().toISOString().split('T')[0];
-    const newRow = { id: Date.now(), date: today, course: defaultCourse, contentName: "", contentMain: "", format: "Video", budget: 0, spent: 0, mess: 0, ordersMong: 0, ordersThanh: 0, pricePerCourse: 3500000, baseCost: 0, evaluation: "normal", action: "monitor", status: "new", link: "", mediaUrl: "", contentFull: "" };
-    const newData = [...data, newRow];
-    setData(newData);
-    saveToCloud(newData, null);
+    const newItem = {
+      id: newId, date: today, course: filterCourse === "ALL" ? config.courses[1] || "K37" : filterCourse,
+      name: "Camp mới...", headline: "", format: "Video", link: "", media: "",
+      budget: 0, spend: 0, mess: 0, mong: 0, thanh: 0, price: 3500000, cost: 0,
+      action: config.actions[3] || "Chờ", status: "DRAFT", content: ""
+    };
+    updateDataWithHistory([newItem, ...data]);
   };
 
-  const handleAddCourse = () => {
-    if (!newCourseName.trim()) return;
-    if (courses.includes(newCourseName.trim())) return alert("Khóa này đã có!");
-    const newCourses = [...courses, newCourseName.trim()];
-    setCourses(newCourses); setCurrentView(newCourseName.trim()); setNewCourseName(""); saveToCloud(null, newCourses);
-  };
+  const handleDelete = (id) => { if(confirm("Xóa dòng này?")) updateDataWithHistory(data.filter(i => i.id !== id)); };
+  const requestSort = (key) => { setSortConfig({ key, direction: (sortConfig.key === key && sortConfig.direction === 'ascending') ? 'descending' : 'ascending' }); };
+  const SortIcon = ({ columnKey }) => { return sortConfig.key === columnKey ? (sortConfig.direction === 'ascending' ? <ChevronUp size={14}/> : <ChevronDown size={14}/>) : null; };
 
-  const handleExport = () => {
-    const backupData = { courses, data, timestamp: new Date().toISOString() };
-    const dataStr = "data:text/json;charset=utf-8," + encodeURIComponent(JSON.stringify(backupData));
-    const a = document.createElement('a'); a.href = dataStr; a.download = `ADS_BACKUP_${new Date().toISOString().split('T')[0]}.json`; a.click();
-  };
-
-  const handleImport = (e) => {
-    const reader = new FileReader();
-    if(e.target.files[0]){
-      reader.readAsText(e.target.files[0]);
-      reader.onload = ev => {
-        try {
-            const parsed = JSON.parse(ev.target.result);
-            if(window.confirm("Dữ liệu hiện tại sẽ bị ghi đè?")) { setCourses(parsed.courses); setData(parsed.data); saveToCloud(parsed.data, parsed.courses); }
-        } catch(err) { alert("Lỗi file!"); }
-      };
-    }
-  };
-
-  if (loading) return <div className="h-screen flex flex-col items-center justify-center bg-slate-50 text-slate-500 font-medium"><div className="w-8 h-8 border-4 border-blue-500 border-t-transparent rounded-full animate-spin mb-4"></div>Đang tải dữ liệu...</div>;
-
-  return (
-    <div className="bg-[#f8fafc] min-h-screen font-sans text-xs text-slate-700" onClick={() => setIsMenuOpen(false)}>
-      <style>{`
-        ::-webkit-scrollbar { width: 6px; height: 6px; }
-        ::-webkit-scrollbar-track { background: transparent; }
-        ::-webkit-scrollbar-thumb { background: #cbd5e1; border-radius: 4px; }
-        ::-webkit-scrollbar-thumb:hover { background: #94a3b8; }
-        .glass-header { background: rgba(255, 255, 255, 0.85); backdrop-filter: blur(8px); }
-      `}</style>
-
-      {/* --- MODAL CINEMA MODE (SMART FIT) --- */}
-      {previewItem && (
-        <div className="fixed inset-0 z-[9999] bg-slate-950/95 backdrop-blur-md flex items-center justify-center p-4 md:p-6 animate-in fade-in duration-200">
-           <div className="absolute inset-0" onClick={() => setPreviewItem(null)}></div>
-           <div className="bg-[#0f172a] rounded-xl shadow-2xl w-full max-w-[95vw] h-[90vh] flex overflow-hidden relative z-10 border border-slate-800 animate-in zoom-in-95 duration-300 flex-col lg:flex-row">
-              <button onClick={() => setPreviewItem(null)} className="absolute top-3 right-3 z-50 bg-black/50 hover:bg-red-600 text-white p-2 rounded-full transition-all backdrop-blur border border-white/10"><X size={18}/></button>
-
-              <div className="w-full lg:w-2/3 bg-black flex flex-col relative group h-[50vh] lg:h-full border-b lg:border-b-0 lg:border-r border-slate-800">
-                  <div className="flex-1 w-full h-full relative">
-                      {/* MEDIA CHÍNH Ở ĐÂY - TỰ ĐỘNG KHÍT KHUNG */}
-                      {renderMediaContent(previewItem.mediaUrl)}
-                  </div>
-                  
-                  {/* THANH NHẬP LINK (Hiện khi hover) */}
-                  <div className="w-full p-4 bg-gradient-to-t from-black via-black/80 to-transparent absolute bottom-0 left-0 opacity-0 group-hover:opacity-100 transition-opacity duration-300 z-20">
-                     <div className="flex items-center gap-2 max-w-2xl mx-auto bg-slate-800/90 backdrop-blur rounded-full px-4 py-2 border border-slate-600 shadow-xl">
-                         <Link size={14} className="text-blue-400 shrink-0"/>
-                         <input value={previewItem.mediaUrl || ""} onChange={(e) => update(previewItem.id, 'mediaUrl', e.target.value)} placeholder="Dán link Facebook / YouTube / Ảnh..." className="flex-1 bg-transparent text-white text-xs outline-none placeholder-slate-500"/>
-                     </div>
-                  </div>
-              </div>
-
-              <div className="w-full lg:w-1/3 flex flex-col bg-white h-[50vh] lg:h-full">
-                  <div className="p-4 border-b border-slate-100 bg-slate-50 flex justify-between items-start">
-                      <div>
-                          <h3 className="font-bold text-base text-slate-800 flex items-center gap-2 mb-1"><FileText size={18} className="text-blue-600"/> Soạn Thảo Content</h3>
-                          <div className="flex items-center gap-2">
-                             <span className="text-[10px] text-slate-400">Campaign:</span>
-                             <span className="text-[10px] font-bold text-blue-700 bg-blue-50 px-2 py-0.5 rounded border border-blue-100 truncate max-w-[200px]">{previewItem.contentName || "Chưa đặt tên"}</span>
-                          </div>
-                      </div>
-                      <span className="text-[10px] font-bold px-3 py-1 bg-slate-200 text-slate-600 rounded-full border border-slate-300">{previewItem.format}</span>
-                  </div>
-                  <div className="flex-1 relative bg-white">
-                      <textarea value={previewItem.contentFull || ""} onChange={(e) => update(previewItem.id, 'contentFull', e.target.value)} placeholder="Viết nội dung quảng cáo, tiêu đề, hastag... (Tự động lưu)" className="w-full h-full bg-transparent outline-none text-slate-700 text-sm leading-7 resize-none p-5 focus:bg-blue-50/10 transition-colors"></textarea>
-                  </div>
-              </div>
-           </div>
+  // --- MODAL CẤU HÌNH ---
+  const ConfigModal = () => (
+    <div className="fixed inset-0 bg-black/50 z-50 flex items-center justify-center animate-in fade-in">
+      <div className="bg-white rounded-xl shadow-2xl w-[600px] max-h-[80vh] overflow-y-auto p-6">
+        <div className="flex justify-between items-center mb-6 border-b pb-4">
+          <h2 className="text-xl font-bold flex items-center gap-2"><Settings className="text-orange-600"/> Cấu Hình Danh Sách</h2>
+          <button onClick={() => setShowConfigModal(false)} className="p-2 hover:bg-slate-100 rounded-full"><X size={20}/></button>
         </div>
-      )}
 
-      {/* --- HEADER --- */}
-      <div className="sticky top-0 z-40 glass-header border-b border-slate-200/60 shadow-sm px-4 py-3 mb-4">
-        <div className="max-w-[1920px] mx-auto flex flex-col md:flex-row justify-between items-center gap-3">
-          <div className="flex items-center gap-3 w-full md:w-auto">
-            <div className="relative" onClick={(e) => e.stopPropagation()}>
-              <button onClick={() => setIsMenuOpen(!isMenuOpen)} className="flex items-center gap-3 bg-white text-slate-700 px-4 py-2 rounded-xl font-bold border border-slate-200 hover:border-blue-300 hover:shadow-md hover:text-blue-700 transition-all min-w-[200px] justify-between group active:scale-95">
-                <span className="flex items-center gap-2.5">
-                    <div className={`p-1.5 rounded-lg transition-colors ${currentView === 'ALL' ? 'bg-blue-100 text-blue-600' : 'bg-orange-100 text-orange-600'}`}>
-                      {currentView === 'ALL' ? <Layers size={16}/> : <Calculator size={16}/>}
-                    </div>
-                    {currentView === 'ALL' ? 'TỔNG HỢP' : `KHÓA: ${currentView}`}
+        <div className="space-y-8">
+          {/* Quản lý Khóa */}
+          <div>
+            <h3 className="font-bold text-slate-700 mb-2">1. Danh sách Khóa học (K)</h3>
+            <div className="flex gap-2 mb-3">
+              <input id="newCourseInput" className="border rounded px-3 py-2 text-sm flex-1" placeholder="Ví dụ: K38" />
+              <button onClick={() => {
+                const val = document.getElementById('newCourseInput').value;
+                if(val) { addItemToConfig('courses', val); document.getElementById('newCourseInput').value = ''; }
+              }} className="bg-blue-600 text-white px-4 py-2 rounded text-sm font-bold">Thêm</button>
+            </div>
+            <div className="flex flex-wrap gap-2">
+              {config.courses.map(item => item !== "ALL" && (
+                <span key={item} className="bg-slate-100 px-3 py-1 rounded-full text-sm flex items-center gap-2 border">
+                  {item} <X size={12} className="cursor-pointer hover:text-red-500" onClick={() => removeItemFromConfig('courses', item)}/>
                 </span>
-                <ChevronDown size={14} className={`transition-transform duration-300 text-slate-400 group-hover:text-blue-500 ${isMenuOpen ? 'rotate-180' : ''}`}/>
-              </button>
-              
-              {isMenuOpen && (
-                <div className="absolute top-full left-0 mt-2 w-72 bg-white rounded-2xl shadow-xl border border-slate-100 z-50 overflow-hidden animate-in fade-in zoom-in-95 duration-200 ring-1 ring-black/5">
-                  <div onClick={() => { setCurrentView('ALL'); setIsMenuOpen(false); }} className={`px-5 py-3 cursor-pointer flex items-center justify-between hover:bg-slate-50 border-b border-slate-50 transition-colors ${currentView === 'ALL' ? 'text-blue-600 bg-blue-50/50' : 'text-slate-600'}`}>
-                      <span className="font-bold flex items-center gap-3 text-sm"><Layers size={16}/> Xem Tổng Hợp</span>
-                      {currentView === 'ALL' && <Check size={16} className="text-blue-600"/>}
-                  </div>
-                  <div className="max-h-[250px] overflow-y-auto py-2 custom-scrollbar">
-                    <div className="px-5 py-2 text-[10px] uppercase font-bold text-slate-400 tracking-wider">Danh sách khóa</div>
-                    {courses.map(course => (
-                      <div key={course} onClick={() => { setCurrentView(course); setIsMenuOpen(false); }} className={`px-5 py-2.5 cursor-pointer flex items-center justify-between hover:bg-slate-50 transition-colors ${currentView === course ? 'text-blue-600 font-bold bg-blue-50/50' : 'text-slate-600'}`}>
-                          <span className="flex items-center gap-2">🔥 {course}</span>
-                          {currentView === course && <Check size={14}/>}
-                      </div>
-                    ))}
-                  </div>
-                  <div className="p-3 bg-slate-50 border-t border-slate-100">
-                     <div className="flex gap-2 bg-white border border-slate-200 rounded-lg p-1 focus-within:ring-2 focus-within:ring-blue-100 focus-within:border-blue-300 transition-all shadow-sm">
-                        <input type="text" placeholder="Tên khóa mới..." value={newCourseName} onChange={(e) => setNewCourseName(e.target.value)} className="w-full px-2 py-1 outline-none text-sm bg-transparent placeholder-slate-400" onKeyDown={(e) => e.key === 'Enter' && handleAddCourse()}/>
-                        <button onClick={handleAddCourse} className="bg-blue-600 text-white px-2 py-1 rounded-md hover:bg-blue-700 transition-colors"><Plus size={16}/></button>
-                     </div>
-                  </div>
-                </div>
-              )}
-            </div>
-            <div className="hidden md:flex items-center gap-2 px-3 py-2 bg-slate-100 text-slate-600 rounded-lg text-xs font-bold border border-slate-200">
-               <div className="w-2 h-2 rounded-full bg-green-500 animate-pulse"></div>
-               {filteredData.length} Camp
+              ))}
             </div>
           </div>
 
-          <div className="flex gap-2">
-              <div className="flex bg-white rounded-lg border border-slate-200 p-1 shadow-sm">
-                <button onClick={handleExport} className="p-2 hover:bg-slate-50 rounded text-slate-500 hover:text-blue-600 transition-colors" title="Backup"><Download size={16}/></button>
-                <button onClick={() => fileInputRef.current.click()} className="p-2 hover:bg-slate-50 rounded text-slate-500 hover:text-orange-600 transition-colors" title="Restore"><Upload size={16}/></button>
-              </div>
-              <input type="file" ref={fileInputRef} onChange={handleImport} className="hidden" accept=".json"/>
-              <button onClick={addNew} className="bg-gradient-to-r from-blue-600 to-indigo-600 hover:from-blue-700 hover:to-indigo-700 text-white px-5 py-2 rounded-xl font-bold flex items-center gap-2 shadow-lg shadow-blue-500/20 transition-all transform hover:-translate-y-0.5 text-sm active:scale-95"><Plus size={18}/> Thêm Mới</button>
+          {/* Quản lý Đánh giá */}
+          <div>
+            <h3 className="font-bold text-slate-700 mb-2">2. Danh sách Đánh giá (Labels)</h3>
+            <div className="flex gap-2 mb-3">
+              <input id="newEvalInput" className="border rounded px-3 py-2 text-sm flex-1" placeholder="Ví dụ: 🔥 Siêu Win" />
+              <button onClick={() => {
+                const val = document.getElementById('newEvalInput').value;
+                if(val) { addItemToConfig('evals', val); document.getElementById('newEvalInput').value = ''; }
+              }} className="bg-green-600 text-white px-4 py-2 rounded text-sm font-bold">Thêm</button>
+            </div>
+            <div className="flex flex-wrap gap-2">
+              {config.evals.map(item => (
+                <span key={item} className="bg-green-50 text-green-700 px-3 py-1 rounded-full text-sm flex items-center gap-2 border border-green-200">
+                  {item} <X size={12} className="cursor-pointer hover:text-red-500" onClick={() => removeItemFromConfig('evals', item)}/>
+                </span>
+              ))}
+            </div>
           </div>
+
+          {/* Quản lý Hành động */}
+          <div>
+            <h3 className="font-bold text-slate-700 mb-2">3. Danh sách Hành động</h3>
+            <div className="flex gap-2 mb-3">
+              <input id="newActionInput" className="border rounded px-3 py-2 text-sm flex-1" placeholder="Ví dụ: Tăng ngân sách" />
+              <button onClick={() => {
+                const val = document.getElementById('newActionInput').value;
+                if(val) { addItemToConfig('actions', val); document.getElementById('newActionInput').value = ''; }
+              }} className="bg-orange-600 text-white px-4 py-2 rounded text-sm font-bold">Thêm</button>
+            </div>
+            <div className="flex flex-wrap gap-2">
+              {config.actions.map(item => (
+                <span key={item} className="bg-orange-50 text-orange-700 px-3 py-1 rounded-full text-sm flex items-center gap-2 border border-orange-200">
+                  {item} <X size={12} className="cursor-pointer hover:text-red-500" onClick={() => removeItemFromConfig('actions', item)}/>
+                </span>
+              ))}
+            </div>
+          </div>
+        </div>
+        <div className="mt-8 text-right">
+           <button onClick={() => setShowConfigModal(false)} className="bg-slate-800 text-white px-6 py-2 rounded-lg font-bold hover:bg-slate-900">Đã Xong</button>
         </div>
       </div>
+    </div>
+  );
 
-      <div className="px-4 pb-20">
-        <div className="bg-white rounded-xl shadow-[0_2px_15px_-3px_rgba(0,0,0,0.07),0_10px_20px_-2px_rgba(0,0,0,0.04)] border border-slate-200 overflow-hidden">
-            <div className="overflow-x-auto custom-scrollbar">
-                <table className="w-full border-collapse min-w-[2000px]">
-                <thead>
-                    <tr className="bg-slate-50/80 text-slate-500 font-bold uppercase text-center tracking-wider text-[10px] border-b border-slate-200">
-                        <th className="p-2 border-r border-slate-100" colSpan={6}>THÔNG TIN CƠ BẢN</th>
-                        <th className="p-2 border-r border-slate-100 bg-amber-50/50 text-amber-700" colSpan={4}>HIỆU QUẢ QUẢNG CÁO</th>
-                        <th className="p-2 border-r border-slate-100 bg-emerald-50/50 text-emerald-700" colSpan={8}>KẾT QUẢ KINH DOANH</th>
-                        <th className="p-2 bg-indigo-50/50 text-indigo-700" colSpan={5}>HÀNH ĐỘNG & TRẠNG THÁI</th>
-                    </tr>
-                    <tr className="bg-white text-slate-600 font-bold text-center whitespace-nowrap text-[11px] border-b border-slate-200">
-                        <th className="p-3 border-r border-slate-100 w-24">Ngày</th>
-                        <th className="p-3 border-r border-slate-100 w-16">Khóa</th>
-                        <th className="p-3 border-r border-slate-100 w-48 text-left pl-4">ID / Tên Bài (Gợi ý)</th>
-                        <th className="p-3 border-r border-slate-100 w-28">Content</th> 
-                        <th className="p-3 border-r border-slate-100 w-48 text-left pl-4">Tiêu đề chính</th>
-                        <th className="p-3 border-r border-slate-100 w-24">Định dạng</th>
-                        <th className="p-3 border-r border-slate-100 bg-amber-50/30 w-28">Ngân sách</th>
-                        <th className="p-3 border-r border-slate-100 bg-amber-50/30 w-28">Tiền Tiêu</th>
-                        <th className="p-3 border-r border-slate-100 bg-amber-50/30 w-16">Mess</th>
-                        <th className="p-3 border-r border-slate-100 bg-amber-50/30 w-24">Giá Mess</th>
-                        <th className="p-3 border-r border-slate-100 bg-emerald-50/30 w-20 text-rose-600">Mong 🔥</th>
-                        <th className="p-3 border-r border-slate-100 bg-emerald-50/30 w-20 text-sky-600">Thành 💧</th>
-                        <th className="p-3 border-r border-slate-100 bg-emerald-50/30 w-20">Tổng</th>
-                        <th className="p-3 border-r border-slate-100 bg-emerald-50/30 w-16">Chốt</th>
-                        <th className="p-3 border-r border-slate-100 bg-emerald-50/30 w-28">Doanh Thu</th>
-                        <th className="p-3 border-r border-slate-100 bg-emerald-50/30 w-24 text-slate-400">Tiền Gốc</th>
-                        <th className="p-3 border-r border-slate-100 bg-emerald-50/30 w-28">Lợi Nhuận</th>
-                        <th className="p-3 border-r border-slate-100 bg-emerald-50/30 w-16 text-purple-700">ROAS</th>
-                        <th className="p-3 border-r border-slate-100 w-28">Đánh giá</th>
-                        <th className="p-3 border-r border-slate-100 w-28">Hành động</th>
-                        <th className="p-3 border-r border-slate-100 w-24">Status</th>
-                        <th className="p-3 border-r border-slate-100 w-20">Link</th>
-                        <th className="p-3 w-10"></th>
-                    </tr>
-                </thead>
-                <tbody className="text-xs">
-                    <tr className="bg-slate-50 font-bold border-b-2 border-slate-200 sticky top-0 z-20 shadow-sm text-slate-700">
-                        <td className="p-3 text-center text-rose-600 font-extrabold" colSpan={6}>📊 TỔNG KẾT ({currentView})</td>
-                        <td className="p-3 text-right text-slate-400">-</td>
-                        <td className="p-3 text-right text-rose-600 font-extrabold bg-rose-50/50">{formatNumber(summary.spent)}</td>
-                        <td className="p-3 text-center">{summary.mess}</td>
-                        <td className="p-3 text-right text-slate-500 italic">{formatNumber(summaryPricePerMess)}</td>
-                        <td className="p-3 text-center text-rose-600">{summary.ordersMong}</td>
-                        <td className="p-3 text-center text-sky-600">{summary.ordersThanh}</td>
-                        <td className="p-3 text-center text-lg text-slate-900">{summaryTotalOrders}</td>
-                        <td className="p-3 text-center italic">{summaryCloseRate.toFixed(1)}%</td>
-                        <td className="p-3 text-right text-emerald-700 font-bold bg-emerald-50/50">{formatNumber(summary.revenue)}</td>
-                        <td className="p-3 bg-slate-100"></td>
-                        <td className="p-3 text-right text-blue-700 font-extrabold bg-blue-50/50">{formatNumber(summary.profit)}</td>
-                        <td className={`p-3 text-center text-lg ${summaryRoas > 4 ? 'text-emerald-600' : 'text-rose-500'}`}>{summaryRoas.toFixed(2)}</td>
-                        <td className="p-3" colSpan={5}></td>
-                    </tr>
-                    
-                    {filteredData.map((row, index) => {
-                    const c = calculateRow(row);
-                    let roasColor = c.roas > 4 ? "text-emerald-600 font-bold" : (c.roas < 1.5 && c.spent > 0 ? "text-rose-600 font-bold" : "text-slate-600");
-                    const rowBg = index % 2 === 0 ? "bg-white" : "bg-slate-50/30";
-                    return (
-                        <tr key={row.id} className={`${rowBg} hover:bg-blue-50/60 transition-colors group border-b border-slate-100`}>
-                        <td className="p-1 border-r border-slate-100"><input type="date" value={row.date} onChange={e => update(row.id, 'date', e.target.value)} className="w-full bg-transparent outline-none text-[10px] text-slate-500 text-center font-medium"/></td>
-                        <td className="p-1 border-r border-slate-100 text-center"><span className="text-[10px] font-bold px-2 py-0.5 bg-slate-200 rounded-md text-slate-600 shadow-sm">{row.course}</span></td>
-                        
-                        <td className="p-1 border-r border-slate-100 relative">
-                            <div className="flex items-center group/input">
-                                <Search size={12} className="text-slate-300 absolute left-2 group-focus-within/input:text-blue-400"/>
-                                <input list={`list-${row.id}`} value={row.contentName} onChange={e => update(row.id, 'contentName', e.target.value)} className="w-full bg-transparent outline-none pl-7 pr-1 text-blue-700 font-bold placeholder-slate-300 py-2 focus:bg-white rounded transition-colors" placeholder="Tìm..." />
-                            </div>
-                            <datalist id={`list-${row.id}`}>{uniqueCampaigns.map(uc => <option key={uc.id} value={uc.contentName}/>)}</datalist>
-                        </td>
+  return (
+    <div className="p-4 bg-[#f8fafc] min-h-screen font-sans animate-in fade-in duration-500">
+      
+      {/* MODAL CONFIG */}
+      {showConfigModal && <ConfigModal />}
 
-                        <td className="p-1 border-r border-slate-100 text-center">
-                            <button onClick={() => setPreviewItem(row)} className={`flex items-center justify-center gap-1.5 w-full py-1.5 rounded-lg text-[10px] font-bold border transition-all transform active:scale-95 ${row.mediaUrl || row.contentFull ? 'bg-indigo-50 text-indigo-600 border-indigo-100 hover:bg-indigo-100 hover:shadow-sm' : 'bg-slate-50 text-slate-400 border-slate-100 hover:bg-slate-100'}`}>
-                                {row.mediaUrl && (row.mediaUrl.includes('facebook') ? <Facebook size={12}/> : <Video size={12}/>)}
-                                {(!row.mediaUrl && !row.contentFull) ? 'Trống' : 'Xem Ads'}
-                            </button>
-                        </td>
-                        
-                        <td className="p-1 border-r border-slate-100"><input value={row.contentMain} onChange={e => update(row.id, 'contentMain', e.target.value)} className="w-full bg-transparent outline-none px-2 py-2 text-slate-700" placeholder="..." /></td>
-                        <td className="p-1 border-r border-slate-100"><select value={row.format} onChange={e => update(row.id, 'format', e.target.value)} className="w-full bg-transparent outline-none text-center text-[10px] font-bold text-slate-500 uppercase"><option>Video</option><option>Image</option><option>Reels</option></select></td>
-
-                        <td className="p-1 border-r border-slate-100 bg-amber-50/20"><input value={row.budget === 0 ? '' : formatNumber(row.budget)} onChange={e => update(row.id, 'budget', parseNumber(e.target.value))} className="w-full bg-transparent outline-none text-right px-2 py-2 text-slate-400 focus:text-slate-900 font-medium transition-colors" placeholder="0" /></td>
-                        <td className="p-1 border-r border-slate-100 bg-amber-50/20"><input value={row.spent === 0 ? '' : formatNumber(row.spent)} onChange={e => update(row.id, 'spent', parseNumber(e.target.value))} className="w-full bg-transparent outline-none text-right px-2 py-2 font-bold text-slate-700" /></td>
-                        <td className="p-1 border-r border-slate-100 bg-amber-50/20"><input value={row.mess === 0 ? '' : row.mess} type="number" onChange={e => update(row.id, 'mess', parseNumber(e.target.value))} className="w-full bg-transparent outline-none text-center px-1 py-2 text-slate-700" /></td>
-                        <td className="p-1 border-r border-slate-100 bg-amber-50/20 text-right text-slate-500 text-[10px] px-2 font-medium">{formatNumber(c.pricePerMess)}</td>
-                        <td className="p-1 border-r border-slate-100 bg-emerald-50/20"><input value={row.ordersMong === 0 ? '' : row.ordersMong} type="number" onChange={e => update(row.id, 'ordersMong', parseNumber(e.target.value))} className="w-full bg-transparent outline-none text-center px-1 py-2 text-rose-500 font-bold" /></td>
-                        <td className="p-1 border-r border-slate-100 bg-emerald-50/20"><input value={row.ordersThanh === 0 ? '' : row.ordersThanh} type="number" onChange={e => update(row.id, 'ordersThanh', parseNumber(e.target.value))} className="w-full bg-transparent outline-none text-center px-1 py-2 text-sky-600 font-bold" /></td>
-                        <td className="p-1 border-r border-slate-100 bg-emerald-50/20 text-center font-bold text-lg text-slate-700">{c.totalOrders}</td>
-                        <td className="p-1 border-r border-slate-100 bg-emerald-50/20 text-center text-[10px] text-slate-500">{c.closeRate.toFixed(1)}%</td>
-                        <td className="p-1 border-r border-slate-100 bg-emerald-50/20 text-right font-medium text-emerald-700 px-2">{formatNumber(c.revenue)}</td>
-                        <td className="p-1 border-r border-slate-100 bg-emerald-50/20"><input value={row.baseCost === 0 ? '' : formatNumber(row.baseCost)} onChange={e => update(row.id, 'baseCost', parseNumber(e.target.value))} className="w-full bg-transparent outline-none text-right px-2 py-2 text-slate-300 text-[10px] focus:text-rose-500 transition-colors" placeholder="0" /></td>
-                        <td className="p-1 border-r border-slate-100 bg-emerald-50/20 text-right font-bold text-blue-700 px-2">{formatNumber(c.profit)}</td>
-                        <td className={`p-1 border-r border-slate-100 bg-emerald-50/20 text-center text-sm ${roasColor}`}>{c.roas.toFixed(2)}</td>
-                        
-                        <td className="p-1 border-r border-slate-100"><select value={row.evaluation} onChange={e => update(row.id, 'evaluation', e.target.value)} className="w-full bg-transparent outline-none text-center text-[10px] cursor-pointer text-slate-600 font-medium"><option value="good">🌟 Tốt</option><option value="normal">✅ Ổn</option><option value="warn">⚠️ Kém</option><option value="bad">💸 Lỗ</option></select></td>
-                        <td className="p-1 border-r border-slate-100 text-center"><select value={row.action} onChange={e => update(row.id, 'action', e.target.value)} className={`w-[90%] outline-none text-center text-[10px] cursor-pointer rounded-full px-1 py-1 font-bold shadow-sm transition-all ${row.action === 'scale' ? 'bg-purple-100 text-purple-700 border border-purple-200' : (row.action === 'stop' ? 'bg-rose-100 text-rose-600 border border-rose-200' : 'bg-slate-100 text-slate-600 border border-slate-200')}`}><option value="scale">🚀 Tăng</option><option value="monitor">👀 Xem</option><option value="optimize">🔧 Sửa</option><option value="stop">🛑 Tắt</option></select></td>
-                        <td className="p-1 border-r border-slate-100 text-center"><select value={row.status} onChange={e => update(row.id, 'status', e.target.value)} className={`w-auto outline-none text-center uppercase text-[10px] cursor-pointer font-extrabold ${row.status === 'active' ? 'text-emerald-500' : 'text-slate-300'}`}><option value="active">ON</option><option value="paused">OFF</option><option value="new">NEW</option></select></td>
-                        
-                        <td className="p-1 border-r border-slate-100 text-center">{row.link ? (<a href={row.link} target="_blank" rel="noreferrer" className="inline-flex items-center justify-center w-6 h-6 rounded-full bg-blue-50 text-blue-600 hover:bg-blue-600 hover:text-white transition-all shadow-sm border border-blue-100"><ExternalLink size={10}/></a>) : (<input type="text" value={row.link} onChange={e => update(row.id, 'link', e.target.value)} placeholder="Link..." className="w-full bg-transparent outline-none text-[10px] text-slate-300 focus:text-blue-600 text-center"/>)}</td>
-                        <td className="p-1 text-center"><button onClick={() => remove(row.id)} className="text-slate-300 hover:text-rose-500 transition-colors p-1.5 hover:bg-rose-50 rounded"><Trash2 size={14}/></button></td>
-                        </tr>
-                    );
-                    })}
-                </tbody>
-                </table>
+      {/* HEADER */}
+      <div className="flex justify-between items-center mb-4 gap-4">
+         <div className="flex items-center gap-4">
+            <h1 className="text-xl font-black text-slate-800 flex items-center gap-2"><span className="text-orange-600">ADS MANAGER</span></h1>
+            
+            {/* UNDO/REDO */}
+            <div className="flex items-center bg-white border border-slate-200 rounded-lg p-1 shadow-sm">
+                <button onClick={undo} disabled={historyIndex === 0} className={`p-1.5 rounded ${historyIndex === 0 ? 'text-slate-300' : 'text-slate-700 hover:bg-slate-100'}`}><Undo size={16}/></button>
+                <div className="w-px h-4 bg-slate-200 mx-1"></div>
+                <button onClick={redo} disabled={historyIndex === history.length - 1} className={`p-1.5 rounded ${historyIndex === history.length - 1 ? 'text-slate-300' : 'text-slate-700 hover:bg-slate-100'}`}><Redo size={16}/></button>
             </div>
-        </div>
+         </div>
+
+         {/* TAB KHÓA (CÓ THỂ XÓA/THÊM) */}
+         <div className="flex bg-white p-1 rounded-lg border border-slate-200 shadow-sm overflow-x-auto">
+            {config.courses.map(k => (
+               <div key={k} className={`group relative flex items-center px-3 py-1.5 rounded-md cursor-pointer transition-all ${filterCourse === k ? 'bg-slate-800 text-white shadow' : 'text-slate-500 hover:bg-slate-100'}`} onClick={() => setFilterCourse(k)}>
+                  <span className="text-xs font-bold mr-1">{k === "ALL" ? "TỔNG HỢP" : k}</span>
+                  {k !== "ALL" && (
+                    <button onClick={(e) => { e.stopPropagation(); removeItemFromConfig('courses', k); }} className="opacity-0 group-hover:opacity-100 hover:text-red-400 transition-opacity p-0.5 rounded-full bg-white/10">
+                       <X size={10} />
+                    </button>
+                  )}
+               </div>
+            ))}
+            <button onClick={() => { 
+                const val = prompt("Tên khóa mới:"); 
+                if(val) addItemToConfig('courses', val); 
+            }} className="px-2 py-1 text-slate-400 hover:text-orange-600 hover:bg-orange-50 rounded-lg ml-1"><Plus size={14}/></button>
+         </div>
+      </div>
+
+      {/* TOOLBAR */}
+      <div className="flex gap-2 mb-4">
+         <div className="relative flex-1">
+            <input value={searchQuery} onChange={(e) => setSearchQuery(e.target.value)} className="w-full pl-8 pr-4 py-2 rounded-lg border border-slate-200 text-sm focus:ring-2 focus:ring-orange-500 outline-none" placeholder="Tìm kiếm..."/>
+            <Search className="absolute left-2.5 top-2.5 text-slate-400" size={14}/>
+         </div>
+         {/* Nút Cấu Hình */}
+         <button onClick={() => setShowConfigModal(true)} className="bg-white border border-slate-200 text-slate-600 px-3 py-2 rounded-lg font-bold shadow-sm hover:bg-slate-50 flex items-center gap-2 text-sm">
+            <Settings size={16}/> Cấu hình List
+         </button>
+         <button onClick={handleAddCampaign} className="bg-orange-600 text-white px-3 py-2 rounded-lg font-bold shadow hover:bg-orange-700 flex items-center gap-1 text-sm"><Plus size={16}/> Thêm QC</button>
+      </div>
+
+      {/* TABLE */}
+      <div className="bg-white rounded-lg shadow border border-slate-300 overflow-hidden">
+         <div className="overflow-x-auto">
+            <table className="w-full text-left border-collapse text-xs whitespace-nowrap">
+               <thead className="bg-slate-800 text-white uppercase text-[10px] font-bold">
+                  <tr>
+                     <th className="p-2 w-8 text-center">#</th>
+                     <th colSpan="7" className="p-2 border-r border-slate-600 text-center bg-slate-900">THÔNG TIN CƠ BẢN</th>
+                     <th colSpan="4" className="p-2 border-r border-slate-600 text-center bg-blue-900">QUẢNG CÁO</th>
+                     <th colSpan="9" className="p-2 border-r border-slate-600 text-center bg-green-900">KINH DOANH</th>
+                     <th colSpan="4" className="p-2 text-center bg-orange-900">TRẠNG THÁI</th>
+                  </tr>
+                  <tr className="bg-slate-100 text-slate-600 border-b-2 border-slate-300 cursor-pointer">
+                     <th className="p-2"></th>
+                     <th className="p-2 min-w-[80px]">Ngày</th>
+                     <th className="p-2 text-center" onClick={() => requestSort('course')}>Khóa <SortIcon columnKey="course"/></th>
+                     <th className="p-2 min-w-[150px]" onClick={() => requestSort('name')}>Tên Bài <SortIcon columnKey="name"/></th>
+                     <th className="p-2 min-w-[120px]">Tiêu đề</th>
+                     <th className="p-2 text-center">Định dạng</th>
+                     <th className="p-2 text-center">Link</th>
+                     <th className="p-2 text-right border-r border-slate-300">Ngân sách</th>
+
+                     <th className="p-2 text-right bg-blue-50 text-blue-800" onClick={() => requestSort('spend')}>Tiền Tiêu <SortIcon columnKey="spend"/></th>
+                     <th className="p-2 text-center bg-blue-50 text-blue-800" onClick={() => requestSort('mess')}>Mess <SortIcon columnKey="mess"/></th>
+                     <th className="p-2 text-right bg-blue-50 text-blue-800">Giá Mess</th>
+                     <th className="p-2 text-center bg-blue-50 text-blue-800 border-r border-blue-200">Rate</th>
+
+                     <th className="p-2 text-center bg-green-50 border-l border-green-100">Mong 🔥</th>
+                     <th className="p-2 text-center bg-green-50">Thành 💧</th>
+                     <th className="p-2 text-center bg-green-50 font-black text-slate-600">TỔNG</th>
+                     <th className="p-2 text-center bg-green-50 text-green-700 font-bold">% Chốt</th>
+                     <th className="p-2 text-right bg-green-50 text-slate-600">Giá Bán</th>
+                     <th className="p-2 text-right bg-green-50 text-green-800 font-bold" onClick={() => requestSort('rev')}>DOANH THU <SortIcon columnKey="rev"/></th>
+                     <th className="p-2 text-right bg-green-50 text-slate-500">Tiền Gốc</th>
+                     <th className="p-2 text-right bg-green-50 text-green-800 font-bold" onClick={() => requestSort('profit')}>LỢI NHUẬN <SortIcon columnKey="profit"/></th>
+                     <th className="p-2 text-center bg-green-50 text-purple-700 font-black border-r border-green-200">ROAS</th>
+
+                     <th className="p-2 text-center bg-orange-50">Đánh giá</th>
+                     <th className="p-2 text-center bg-orange-50">Hành động</th>
+                     <th className="p-2 text-center bg-orange-50">Status</th>
+                     <th className="p-2 text-center bg-orange-50">Xóa</th>
+                  </tr>
+               </thead>
+
+               <tbody className="bg-yellow-50 font-bold text-slate-800 border-b-2 border-yellow-200">
+                  <tr>
+                     <td colSpan="8" className="p-2 text-right uppercase text-[10px]">📊 TỔNG ({filterCourse}):</td>
+                     <td className="p-2 text-right text-red-600">-{fmt(summary.spend)}</td>
+                     <td className="p-2 text-center">{fmt(summary.mess)}</td>
+                     <td colSpan="2" className="p-2"></td>
+                     <td colSpan="2" className="p-2"></td>
+                     <td className="p-2 text-center text-green-600 text-sm">{fmt(summary.orders)}</td>
+                     <td className="p-2 text-center">{(summary.spend > 0 ? ((summary.orders/summary.mess)*100).toFixed(1) : 0)}%</td>
+                     <td className="p-2"></td>
+                     <td className="p-2 text-right text-green-700 text-sm">{fmt(summary.rev)}</td>
+                     <td className="p-2 text-right text-slate-500 text-xs">-{fmt(summary.cost)}</td>
+                     <td className="p-2 text-right text-green-700 text-sm">{fmt(summary.profit)}</td>
+                     <td className="p-2 text-center text-purple-700">{(summary.spend > 0 ? (summary.rev / summary.spend).toFixed(2) : 0)}x</td>
+                     <td colSpan="4"></td>
+                  </tr>
+               </tbody>
+
+               <tbody className="divide-y divide-slate-200 bg-white">
+                  {processedData.map((item) => (
+                     <React.Fragment key={item.id}>
+                        <tr className={`hover:bg-blue-50/30 transition-colors ${expandedRow === item.id ? 'bg-blue-50/50' : ''}`}>
+                           <td className="p-2 text-center cursor-pointer" onClick={() => setExpandedRow(expandedRow === item.id ? null : item.id)}>
+                              {expandedRow === item.id ? <ChevronDown size={14}/> : <ChevronRight size={14}/>}
+                           </td>
+
+                           <td className="p-2"><input type="date" className="bg-transparent outline-none w-20 text-[10px]" value={item.date} onChange={(e) => handleUpdate(item.id, 'date', e.target.value)}/></td>
+                           <td className="p-2 font-bold text-slate-500 text-center">{item.course}</td>
+                           <td className="p-2"><input className="w-full bg-transparent outline-none font-bold text-slate-700" value={item.name} onChange={(e) => handleUpdate(item.id, 'name', e.target.value)}/></td>
+                           <td className="p-2"><input className="w-24 bg-transparent outline-none" value={item.headline} onChange={(e) => handleUpdate(item.id, 'headline', e.target.value)}/></td>
+                           
+                           {/* DROPDOWN FORMAT (Lấy từ Config) */}
+                           <td className="p-2 text-center">
+                              <select className="bg-transparent outline-none cursor-pointer text-[10px]" value={item.format} onChange={(e) => handleUpdate(item.id, 'format', e.target.value)}>{config.formats.map(f => <option key={f} value={f}>{f}</option>)}</select>
+                           </td>
+                           <td className="p-2 text-center text-blue-600 cursor-pointer"><LinkIcon size={14} onClick={() => {if(item.link) window.open(item.link, '_blank')}}/></td>
+                           <td className="p-2 text-right border-r border-slate-200"><input className="w-20 text-right bg-transparent outline-none" value={fmt(item.budget)} onChange={(e) => handleUpdate(item.id, 'budget', e.target.value)}/></td>
+
+                           <td className="p-2 text-right font-medium bg-blue-50/10"><input className="w-20 text-right bg-transparent outline-none font-bold text-blue-800" value={fmt(item.spend)} onChange={(e) => handleUpdate(item.id, 'spend', e.target.value)}/></td>
+                           <td className="p-2 text-center font-bold bg-blue-50/10"><input className="w-10 text-center bg-transparent outline-none text-blue-600" value={fmt(item.mess)} onChange={(e) => handleUpdate(item.id, 'mess', e.target.value)}/></td>
+                           <td className="p-2 text-right text-slate-500 bg-blue-50/10">{fmt(item.cpm)}</td>
+                           <td className="p-2 text-center text-slate-500 border-r border-blue-100">{item.rate}%</td>
+
+                           <td className="p-2 text-center border-l border-slate-100"><input className="w-8 text-center bg-transparent outline-none" value={item.mong} onChange={(e) => handleUpdate(item.id, 'mong', e.target.value)}/></td>
+                           <td className="p-2 text-center"><input className="w-8 text-center bg-transparent outline-none" value={item.thanh} onChange={(e) => handleUpdate(item.id, 'thanh', e.target.value)}/></td>
+                           <td className="p-2 text-center font-bold text-slate-400">{item.total}</td>
+                           <td className="p-2 text-center font-bold text-green-600">{item.rate}%</td>
+                           <td className="p-2 text-right"><input className="w-16 text-right bg-transparent outline-none text-slate-600" value={fmt(item.price)} onChange={(e) => handleUpdate(item.id, 'price', e.target.value)}/></td>
+                           <td className="p-2 text-right font-bold text-green-700">{fmt(item.rev)}</td>
+                           <td className="p-2 text-right text-slate-400"><input className="w-16 text-right bg-transparent outline-none" value={fmt(item.cost)} onChange={(e) => handleUpdate(item.id, 'cost', e.target.value)}/></td>
+                           <td className={`p-2 text-right font-bold ${item.profit > 0 ? 'text-green-600' : 'text-red-500'}`}>{fmt(item.profit)}</td>
+                           <td className="p-2 text-center font-black border-r border-slate-200">{item.roas}x</td>
+
+                           {/* DROPDOWN ĐÁNH GIÁ (CUSTOM) */}
+                           <td className="p-2 text-center">
+                              <select className="bg-transparent text-[10px] font-bold outline-none cursor-pointer" value={item.eval} onChange={(e) => handleUpdate(item.id, 'eval', e.target.value)}>
+                                 {config.evals.map(a => <option key={a} value={a}>{a}</option>)}
+                              </select>
+                           </td>
+                           
+                           {/* DROPDOWN HÀNH ĐỘNG (CUSTOM) */}
+                           <td className="p-2 text-center">
+                              <select className="bg-transparent text-[10px] font-bold outline-none cursor-pointer" value={item.action} onChange={(e) => handleUpdate(item.id, 'action', e.target.value)}>
+                                 {config.actions.map(a => <option key={a} value={a}>{a}</option>)}
+                              </select>
+                           </td>
+                           <td className="p-2 text-center">
+                              <div className={`w-8 h-4 rounded-full relative cursor-pointer mx-auto transition-colors ${item.status === 'ON' ? 'bg-green-500' : 'bg-slate-300'}`} onClick={() => handleUpdate(item.id, 'status', item.status === 'ON' ? 'OFF' : 'ON')}>
+                                 <div className={`w-2 h-2 bg-white rounded-full absolute top-1 transition-all ${item.status === 'ON' ? 'left-5' : 'left-1'}`}></div>
+                              </div>
+                           </td>
+                           <td className="p-2 text-center"><button onClick={() => handleDelete(item.id)} className="text-slate-300 hover:text-red-500"><Trash2 size={14}/></button></td>
+                        </tr>
+
+                        {expandedRow === item.id && (
+                           <tr className="bg-slate-50 border-b border-slate-200">
+                              <td colSpan="21" className="p-4">
+                                 <div className="flex gap-4">
+                                    <div className="w-1/3">
+                                       <div className="font-bold mb-1 text-xs text-slate-500 uppercase">Link & Media</div>
+                                       <input className="w-full p-2 text-xs border rounded mb-2 bg-white" placeholder="Link Ads..." value={item.link} onChange={(e) => handleUpdate(item.id, 'link', e.target.value)}/>
+                                       <input className="w-full p-2 text-xs border rounded bg-white" placeholder="Link Embed..." value={item.media} onChange={(e) => handleUpdate(item.id, 'media', e.target.value)}/>
+                                    </div>
+                                    <div className="w-1/3">
+                                       <div className="font-bold mb-1 text-xs text-slate-500 uppercase">Nội dung</div>
+                                       <textarea className="w-full h-24 p-2 text-xs border rounded resize-none bg-white break-words" value={item.content} onChange={(e) => handleUpdate(item.id, 'content', e.target.value)}/>
+                                    </div>
+                                    <div className="w-1/3">
+                                       <div className="font-bold mb-1 text-xs text-slate-500 uppercase">Preview</div>
+                                       <div className="aspect-video bg-black rounded overflow-hidden flex items-center justify-center text-white text-xs">
+                                          {item.media ? <iframe src={item.media} className="w-full h-full" title="preview"/> : "Chưa có media"}
+                                       </div>
+                                    </div>
+                                 </div>
+                              </td>
+                           </tr>
+                        )}
+                     </React.Fragment>
+                  ))}
+               </tbody>
+            </table>
+         </div>
       </div>
     </div>
   );

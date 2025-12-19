@@ -1,88 +1,46 @@
-import React, { useState } from 'react';
-import { signInWithEmailAndPassword } from "firebase/auth";
-import { auth } from '../firebase';
-import { Lock, LogIn, ShieldCheck } from 'lucide-react';
+// src/components/Login.jsx
+import React from 'react';
+import { useNavigate } from 'react-router-dom';
+import { Lock, Mail } from 'lucide-react';
 
 export default function Login() {
-  const [email, setEmail] = useState("");
-  const [pass, setPass] = useState("");
-  const [error, setError] = useState("");
-  const [loading, setLoading] = useState(false);
+  const navigate = useNavigate();
 
-  const handleLogin = async (e) => {
+  const handleLogin = (e) => {
     e.preventDefault();
-    setLoading(true);
-    setError("");
-    try {
-      await signInWithEmailAndPassword(auth, email, pass);
-    } catch (err) {
-      setError("Sai email hoặc mật khẩu!");
-      setLoading(false);
-    }
+    // Giả lập đăng nhập thành công
+    localStorage.setItem('isLoggedIn', 'true');
+    navigate('/');
   };
 
   return (
-    // Dùng 'fixed inset-0' để phủ kín màn hình và 'flex items-center justify-center' để căn giữa
-    <div className="fixed inset-0 z-[9999] flex items-center justify-center bg-gradient-to-br from-slate-800 to-slate-900">
-      
-      {/* Hiệu ứng nền mờ trang trí */}
-      <div className="absolute inset-0 opacity-20" style={{backgroundImage: 'radial-gradient(#ffffff 1px, transparent 1px)', backgroundSize: '30px 30px'}}></div>
-
-      {/* Hộp đăng nhập chính */}
-      <div className="bg-white p-8 rounded-2xl shadow-2xl w-full max-w-[400px] border border-gray-200 relative z-10 mx-4 animate-in zoom-in-95 duration-300">
-        
-        <div className="text-center mb-8">
-          <div className="bg-blue-600 p-4 rounded-full w-20 h-20 flex items-center justify-center mx-auto mb-4 text-white shadow-lg shadow-blue-500/30">
-            <ShieldCheck size={40} />
-          </div>
-          <h1 className="text-2xl font-extrabold text-gray-800 tracking-tight">CỔNG BẢO MẬT</h1>
-          <p className="text-gray-500 text-sm mt-2">Hệ thống quản lý nội bộ</p>
+    <div className="min-h-screen flex items-center justify-center bg-slate-900 text-white">
+      <div className="w-full max-w-md p-8 bg-slate-800 rounded-2xl shadow-2xl border border-slate-700">
+        <div className="text-center mb-10">
+          <div className="w-16 h-16 bg-orange-600 rounded-xl mx-auto flex items-center justify-center text-3xl font-bold mb-4 shadow-lg shadow-orange-500/20">M</div>
+          <h1 className="text-2xl font-bold">Đăng Nhập Hệ Thống</h1>
+          <p className="text-slate-400 text-sm mt-2">Hệ thống quản trị nội bộ Mong Group</p>
         </div>
 
-        <form onSubmit={handleLogin} className="space-y-5">
-          <div className="space-y-1">
-            <label className="text-xs font-bold text-gray-500 uppercase ml-1">Email Truy Cập</label>
-            <input 
-              type="email" 
-              required
-              className="w-full bg-gray-50 border border-gray-200 px-4 py-3 rounded-xl focus:ring-2 focus:ring-blue-500 focus:bg-white focus:border-blue-500 outline-none transition-all text-gray-800 font-medium"
-              placeholder="admin@company.com"
-              value={email}
-              onChange={(e) => setEmail(e.target.value)}
-            />
-          </div>
-          
-          <div className="space-y-1">
-            <label className="text-xs font-bold text-gray-500 uppercase ml-1">Mật Khẩu</label>
-            <input 
-              type="password" 
-              required
-              className="w-full bg-gray-50 border border-gray-200 px-4 py-3 rounded-xl focus:ring-2 focus:ring-blue-500 focus:bg-white focus:border-blue-500 outline-none transition-all text-gray-800 font-medium"
-              placeholder="••••••••"
-              value={pass}
-              onChange={(e) => setPass(e.target.value)}
-            />
-          </div>
-
-          {error && (
-            <div className="text-red-600 text-sm text-center font-bold bg-red-50 p-3 rounded-lg border border-red-100 flex items-center justify-center gap-2 animate-pulse">
-              <Lock size={14}/> {error}
+        <form onSubmit={handleLogin} className="space-y-6">
+          <div>
+            <label className="block text-xs font-bold uppercase text-slate-400 mb-2">Email</label>
+            <div className="relative">
+              <Mail className="absolute left-4 top-3 text-slate-500" size={20} />
+              <input type="email" placeholder="admin@monggroup.com" className="w-full bg-slate-900 border border-slate-700 rounded-xl py-3 pl-12 focus:outline-none focus:border-orange-500 transition-colors" />
             </div>
-          )}
-
-          <button 
-            disabled={loading}
-            className="w-full bg-blue-600 hover:bg-blue-700 active:scale-95 text-white font-bold py-3.5 rounded-xl flex items-center justify-center gap-2 transition-all shadow-lg shadow-blue-600/30 text-base"
-          >
-            {loading ? "Đang xác thực..." : <><LogIn size={20} /> ĐĂNG NHẬP NGAY</>}
+          </div>
+          <div>
+            <label className="block text-xs font-bold uppercase text-slate-400 mb-2">Mật khẩu</label>
+            <div className="relative">
+              <Lock className="absolute left-4 top-3 text-slate-500" size={20} />
+              <input type="password" placeholder="••••••••" className="w-full bg-slate-900 border border-slate-700 rounded-xl py-3 pl-12 focus:outline-none focus:border-orange-500 transition-colors" />
+            </div>
+          </div>
+          <button className="w-full bg-gradient-to-r from-orange-600 to-red-600 py-3 rounded-xl font-bold hover:shadow-lg hover:shadow-orange-500/20 transition-all transform hover:-translate-y-1">
+            ĐĂNG NHẬP NGAY
           </button>
         </form>
-
-        <div className="mt-8 pt-6 border-t border-gray-100 text-center">
-            <p className="text-xs text-gray-400 font-medium">
-              &copy; 2025 Powered by Mong Coaching
-            </p>
-        </div>
       </div>
     </div>
   );
