@@ -1,42 +1,102 @@
+/* --- 1. RESET CƠ BẢN --- */
+* {
+  box-sizing: border-box;
+  margin: 0;
+  padding: 0;
+}
+
+:root {
+  font-family: Inter, system-ui, Avenir, Helvetica, Arial, sans-serif;
+  line-height: 1.5;
+  font-weight: 400;
+  
+  /* Màu nền chuẩn cho Dashboard */
+  background-color: #f1f5f9; 
+  color: #0f172a;
+
+  font-synthesis: none;
+  text-rendering: optimizeLegibility;
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
+}
+
+/* Đảm bảo App luôn full màn hình */
 #root {
-  max-width: 1280px;
-  margin: 0 auto;
-  padding: 2rem;
-  text-align: center;
+  width: 100%;
+  height: 100vh;
+  margin: 0;
+  padding: 0;
+  text-align: left; /* Quan trọng: Ghi đè cái center cũ */
+  overflow: hidden; /* Chặn scroll body, chỉ scroll nội dung */
 }
 
-.logo {
-  height: 6em;
-  padding: 1.5em;
-  will-change: filter;
-  transition: filter 300ms;
-}
-.logo:hover {
-  filter: drop-shadow(0 0 2em #646cffaa);
-}
-.logo.react:hover {
-  filter: drop-shadow(0 0 2em #61dafbaa);
+body {
+  margin: 0;
+  min-width: 320px;
+  min-height: 100vh;
+  overflow: hidden; /* Quan trọng cho layout sidebar */
 }
 
-@keyframes logo-spin {
-  from {
-    transform: rotate(0deg);
-  }
-  to {
-    transform: rotate(360deg);
-  }
+/* --- 2. TÙY CHỈNH THANH CUỘN (SCROLLBAR) --- */
+/* Giúp thanh cuộn nhỏ gọn, sang trọng hơn */
+::-webkit-scrollbar {
+  width: 6px;
+  height: 6px;
 }
 
-@media (prefers-reduced-motion: no-preference) {
-  a:nth-of-type(2) .logo {
-    animation: logo-spin infinite 20s linear;
-  }
+::-webkit-scrollbar-track {
+  background: transparent; 
 }
 
-.card {
-  padding: 2em;
+::-webkit-scrollbar-thumb {
+  background: #cbd5e1; /* Màu xám nhạt */
+  border-radius: 10px;
 }
 
-.read-the-docs {
-  color: #888;
+::-webkit-scrollbar-thumb:hover {
+  background: #94a3b8; /* Đậm hơn khi di chuột vào */
+}
+
+/* --- 3. TIỆN ÍCH CHO INPUT --- */
+/* Bỏ cái mũi tên tăng giảm xấu xí ở ô nhập số (input type=number) */
+input::-webkit-outer-spin-button,
+input::-webkit-inner-spin-button {
+  -webkit-appearance: none;
+  margin: 0;
+}
+
+/* Bỏ viền xanh mặc định của trình duyệt khi bấm vào ô input */
+input:focus, textarea:focus, select:focus {
+  outline: none;
+}
+
+/* --- 4. HIỆU ỨNG ANIMATION --- */
+/* Hiệu ứng Fade in nhẹ nhàng */
+@keyframes fadeIn {
+  from { opacity: 0; transform: translateY(5px); }
+  to { opacity: 1; transform: translateY(0); }
+}
+
+.fade-in {
+  animation: fadeIn 0.4s ease-out forwards;
+}
+
+/* Hiệu ứng xoay nhẹ (dùng cho icon loading) */
+@keyframes spin-slow {
+  from { transform: rotate(0deg); }
+  to { transform: rotate(360deg); }
+}
+
+.animate-spin-slow {
+  animation: spin-slow 3s linear infinite;
+}
+
+/* --- 5. TÙY CHỈNH KHÁC --- */
+/* Ẩn thanh cuộn nhưng vẫn cuộn được (cho các list ngang) */
+.scrollbar-hide::-webkit-scrollbar {
+    display: none;
+}
+.scrollbar-hide {
+    -ms-overflow-style: none;
+    scrollbar-width: none;
 }

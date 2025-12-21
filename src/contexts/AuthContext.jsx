@@ -1,11 +1,6 @@
 import React, { createContext, useContext, useEffect, useState } from 'react';
-import { auth, db } from '../firebase';
-import { 
-  onAuthStateChanged, 
-  signInWithEmailAndPassword, 
-  signOut 
-} from 'firebase/auth';
-import { ref, get } from 'firebase/database';
+import { db } from '../firebase';
+import { ref, get, onValue } from 'firebase/database';
 
 const AuthContext = createContext();
 
@@ -15,86 +10,103 @@ export function useAuth() {
 
 export function AuthProvider({ children }) {
   const [currentUser, setCurrentUser] = useState(null);
-  const [userRole, setUserRole] = useState(null);
+  const [userRole, setUserRole] = useState(null); // ADMIN, SALE, STAFF
+  const [userPermissions, setUserPermissions] = useState(null);
   const [loading, setLoading] = useState(true);
 
-  // --- HÀM ĐĂNG NHẬP BẰNG EMAIL/PASS ---
+  // --- HÀM 1: ĐỒNG BỘ QUYỀN TỪ DB (REALTIME) ---
+  const syncUserFromDB = (email) => {
+    if (!email) return;
+
+    const usersRef = ref(db, 'system_settings/users');
+    onValue(usersRef, (snapshot) => {
+      const val = snapshot.val();
+      // Xử lý an toàn dù DB trả về Mảng hay Object
+      const usersList = val ? (Array.isArray(val) ? val : Object.values(val)) : [];
+      
+      const found = usersList.find(u => u?.email?.toLowerCase() === email.toLowerCase());
+
+      if (found) {
+        // Cập nhật quyền mới nhất từ DB
+        setUserRole(found.role || 'STAFF');
+        setUserPermissions(found.permissions || {});
+        
+        // Cập nhật thông tin phụ (tên, trạng thái)
+        setCurrentUser(prev => ({
+          ...prev, 
+          name: found.name, 
+          isActive: found.isActive 
+        }));
+      } else {
+        // Nếu user bị xóa khỏi DB -> Đăng xuất
+        logout();
+      }
+    });
+  };
+
+  // --- HÀM 2: ĐĂNG NHẬP ---
   const login = async (email, password) => {
     try {
-      // 1. Đăng nhập qua Firebase Auth
-      const result = await signInWithEmailAndPassword(auth, email, password);
-      const user = result.user;
+      const snapshot = await get(ref(db, 'system_settings/users'));
+      const val = snapshot.val();
+      const usersList = val ? (Array.isArray(val) ? val : Object.values(val)) : [];
       
-      // 2. Kiểm tra quyền trong Database (SettingsManager)
-      const allowed = await checkUserPermission(user.email);
-      
-      if (!allowed) {
-        await signOut(auth);
-        throw new Error("Tài khoản này chưa được cấp quyền truy cập hệ thống!");
-      }
-      return true;
-    } catch (error) {
-      console.error("Login failed:", error);
-      throw error; // Ném lỗi ra để trang Login hiển thị
-    }
-  };
-
-  // --- KIỂM TRA QUYỀN TRUY CẬP ---
-  const checkUserPermission = async (email) => {
-    try {
-      const snapshot = await get(ref(db, 'system_settings/users')); 
-      const usersList = snapshot.val() || [];
-      
-      // Tìm xem email có trong danh sách cấp quyền không
-      // Lưu ý: usersList có thể là object hoặc array tùy firebase lưu
-      const usersArray = Array.isArray(usersList) ? usersList : Object.values(usersList);
-      
-      const foundUser = usersArray.find(u => u.email && u.email.toLowerCase() === email.toLowerCase());
+      const foundUser = usersList.find(u => 
+        u?.email?.toLowerCase() === email.toLowerCase().trim() && 
+        String(u?.password) === String(password)
+      );
       
       if (foundUser) {
-        setUserRole(foundUser.role);
+        const userObj = { 
+          email: foundUser.email, 
+          name: foundUser.name,
+          isActive: foundUser.isActive 
+        };
+
+        setCurrentUser(userObj);
+        setUserRole(foundUser.role || 'STAFF');
+        setUserPermissions(foundUser.permissions || {});
+        
+        syncUserFromDB(foundUser.email); // Bắt đầu lắng nghe thay đổi quyền
+
+        localStorage.setItem('mong_logged_in_user', JSON.stringify(userObj));
         return true;
+      } else {
+        throw new Error("Email hoặc mật khẩu không đúng!");
       }
-      return false;
     } catch (error) {
-      console.error("Check permission error", error);
-      return false;
+      throw error;
     }
   };
 
+  // --- HÀM 3: ĐĂNG XUẤT ---
   const logout = () => {
-    return signOut(auth);
+    localStorage.removeItem('mong_logged_in_user');
+    setCurrentUser(null);
+    setUserRole(null);
+    setUserPermissions(null);
+    window.location.href = "/login";
   };
 
+  // --- HÀM 4: KHỞI TẠO ---
   useEffect(() => {
-    const unsubscribe = onAuthStateChanged(auth, async (user) => {
-      if (user) {
-        const hasAccess = await checkUserPermission(user.email);
-        if (hasAccess) {
+    const savedUserJSON = localStorage.getItem('mong_logged_in_user');
+    if (savedUserJSON) {
+      try {
+        const user = JSON.parse(savedUserJSON);
+        if (user && user.email) {
           setCurrentUser(user);
-        } else {
-          setCurrentUser(null);
-          setUserRole(null);
+          syncUserFromDB(user.email); // Đồng bộ lại quyền ngay khi mở web
         }
-      } else {
-        setCurrentUser(null);
-        setUserRole(null);
+      } catch (e) {
+        localStorage.removeItem('mong_logged_in_user');
       }
-      setLoading(false);
-    });
-
-    return unsubscribe;
+    }
+    setLoading(false);
   }, []);
 
-  const value = {
-    currentUser,
-    userRole,
-    login, // Xuất hàm login mới
-    logout
-  };
-
   return (
-    <AuthContext.Provider value={value}>
+    <AuthContext.Provider value={{ currentUser, userRole, userPermissions, login, logout }}>
       {!loading && children}
     </AuthContext.Provider>
   );

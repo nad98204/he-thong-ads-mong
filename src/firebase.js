@@ -1,7 +1,6 @@
 // src/firebase.js
 import { initializeApp } from "firebase/app";
 import { getDatabase } from "firebase/database";
-// [MỚI] Thêm Auth
 import { getAuth, GoogleAuthProvider } from "firebase/auth"; 
 
 const firebaseConfig = {
@@ -16,7 +15,11 @@ const firebaseConfig = {
 };
 
 const app = initializeApp(firebaseConfig);
-export const db = getDatabase(app);
-// [MỚI] Xuất Auth
+
+// [QUAN TRỌNG] Thêm tham số thứ 2 là URL để ép buộc kết nối đúng server Singapore
+// Nếu không có dòng này, một số trường hợp nó sẽ tự trỏ về Mỹ gây lỗi treo Loading
+export const db = getDatabase(app, "https://dangpkkzxy-default-rtdb.asia-southeast1.firebasedatabase.app");
+
+// Xuất Auth
 export const auth = getAuth(app);
 export const googleProvider = new GoogleAuthProvider();
