@@ -4,7 +4,7 @@ import {
   ChevronDown, ChevronRight, 
   Link as LinkIcon, Trash2, 
   BarChart3, Lock, PlayCircle, Image as ImageIcon,
-  Facebook
+  Facebook, ExternalLink
 } from 'lucide-react';
 
 // --- IMPORT FIREBASE & AUTH ---
@@ -14,8 +14,6 @@ import { useAuth } from '../contexts/AuthContext';
 
 export default function AdsManager() {
   const { userPermissions, userRole } = useAuth();
-  
-  // --- KIỂM TRA QUYỀN TRUY CẬP ---
   const canView = userRole === 'ADMIN' || userPermissions?.ads?.view;
   const canEdit = userRole === 'ADMIN' || userPermissions?.ads?.edit;
 
@@ -74,19 +72,35 @@ export default function AdsManager() {
 
   const fmt = (num) => new Intl.NumberFormat('vi-VN').format(num || 0);
 
-  // --- LOGIC XỬ LÝ MEDIA (MỚI) ---
+  // --- LOGIC XỬ LÝ MEDIA (NÂNG CẤP: VIDEO + ẢNH FB) ---
   const getEmbedUrl = (url) => {
     if (!url) return null;
-    // Xử lý link Facebook để nhúng
+    
+    // 1. VIDEO FACEBOOK (Plugin Embed)
     if (url.includes('facebook.com') || url.includes('fb.watch')) {
-        // Đây là cách trick để nhúng video FB: dùng plugin page
         return `https://www.facebook.com/plugins/video.php?href=${encodeURIComponent(url)}&show_text=false&t=0`;
     }
+    
+    // 2. VIDEO YOUTUBE
     if (url.includes('youtube.com') || url.includes('youtu.be')) {
         const videoId = url.split('v=')[1] || url.split('/').pop();
         return `https://www.youtube.com/embed/${videoId}`;
     }
-    return url; // Các link ảnh trực tiếp
+    
+    // 3. ẢNH TRỰC TIẾP (Bao gồm cả link loằng ngoằng fbcdn)
+    // Trả về nguyên gốc để thẻ <img> xử lý
+    return url; 
+  };
+
+  // Hàm kiểm tra xem Link là ẢNH hay VIDEO để render đúng thẻ
+  const isImage = (url) => {
+      if (!url) return false;
+      const lower = url.toLowerCase();
+      // Check đuôi ảnh phổ biến
+      if (lower.match(/\.(jpeg|jpg|gif|png|webp|bmp|svg)/)) return true;
+      // Check link ảnh FB (thường chứa fbcdn, scontent) và KHÔNG phải là trang video
+      if ((lower.includes('fbcdn') || lower.includes('scontent')) && !lower.includes('video')) return true;
+      return false;
   };
 
   // --- LOGIC XỬ LÝ KHÁC ---
@@ -147,7 +161,7 @@ export default function AdsManager() {
     const today = new Date().toISOString().split('T')[0];
     const newItem = {
       id: newId, date: today, course: filterCourse === "ALL" ? config.courses[1] || "K37" : filterCourse,
-      name: "Camp mới...", headline: "", format: "Video", link: "", media: "",
+      name: "QC Mới", headline: "", format: "Video", link: "", media: "",
       budget: 0, spend: 0, mess: 0, mong: 0, thanh: 0, price: 3500000, cost: 0,
       action: "Chờ", status: "DRAFT", content: ""
     };
@@ -290,79 +304,61 @@ export default function AdsManager() {
                            <td className="p-3 text-center"><button disabled={!canEdit} onClick={() => handleDelete(item.id)} className={`transition-colors ${canEdit ? 'text-slate-300 hover:text-red-500' : 'text-slate-50'}`}><Trash2 size={14}/></button></td>
                         </tr>
                         
-                        {/* PHẦN MEDIA MỞ RỘNG */}
+                        {/* --- EXPANDED ROW (Đã sửa: Preview Dáng Đứng - Hỗ trợ cả ẢNH + VIDEO) --- */}
                         {expandedRow === item.id && (
                            <tr className="bg-slate-50 border-b border-slate-200 animate-in fade-in slide-in-from-top-2">
                               <td className="sticky left-0 bg-slate-50 z-10 border-r border-slate-100"></td>
-                              <td colSpan="25" className="p-6">
-                                 <div className="flex gap-6">
-                                    {/* Cột 1: Nhập liệu Link */}
-                                    <div className="w-1/3 space-y-4">
-                                       <div>
-                                          <div className="font-bold mb-2 text-xs text-slate-500 uppercase flex items-center gap-2">
-                                            <Facebook size={14}/> Link Bài Quảng Cáo (Để click xem)
-                                          </div>
-                                          <input 
-                                            readOnly={!canEdit} 
-                                            className="w-full p-2.5 text-xs border border-slate-300 rounded-lg bg-white focus:ring-2 focus:ring-blue-100 outline-none" 
-                                            placeholder="Dán link bài viết Facebook vào đây..." 
-                                            value={item.link} 
-                                            onChange={(e) => handleUpdate(item.id, 'link', e.target.value)}
-                                          />
-                                       </div>
-                                       <div>
-                                          <div className="font-bold mb-2 text-xs text-slate-500 uppercase flex items-center gap-2">
-                                            <PlayCircle size={14}/> Link Video/Ảnh (Để xem trực tiếp)
-                                          </div>
-                                          <input 
-                                            readOnly={!canEdit} 
-                                            className="w-full p-2.5 text-xs border border-slate-300 rounded-lg bg-white focus:ring-2 focus:ring-orange-100 outline-none" 
-                                            placeholder="Dán link video FB/Youtube hoặc link ảnh..." 
-                                            value={item.media} 
-                                            onChange={(e) => handleUpdate(item.id, 'media', e.target.value)}
-                                          />
-                                          <p className="text-[10px] text-slate-400 mt-1 italic">Hỗ trợ link video Facebook, Youtube hoặc link ảnh trực tiếp.</p>
-                                       </div>
-                                    </div>
-
-                                    {/* Cột 2: Nội dung text */}
-                                    <div className="w-1/3">
-                                       <div className="font-bold mb-2 text-xs text-slate-500 uppercase">Nội dung Content</div>
-                                       <textarea 
-                                          readOnly={!canEdit} 
-                                          className="w-full h-40 p-3 text-xs border border-slate-300 rounded-lg resize-none bg-white focus:ring-2 focus:ring-blue-100 outline-none" 
-                                          placeholder="Viết nội dung quảng cáo ở đây..."
-                                          value={item.content} 
-                                          onChange={(e) => handleUpdate(item.id, 'content', e.target.value)}
-                                       />
-                                    </div>
-
-                                    {/* Cột 3: Preview Media */}
-                                    <div className="w-1/3">
-                                       <div className="font-bold mb-2 text-xs text-slate-500 uppercase flex items-center gap-2">
-                                          <ImageIcon size={14}/> Xem trước
-                                       </div>
-                                       <div className="aspect-video bg-black rounded-xl overflow-hidden shadow-lg border border-slate-200 relative group">
+                              <td colSpan="25" className="p-6 bg-slate-50">
+                                 <div className="flex gap-6 items-start">
+                                    
+                                    {/* 1. KHUNG PREVIEW (DÁNG ĐỨNG - MOBILE SIZE) */}
+                                    <div className="shrink-0 flex flex-col gap-2">
+                                       <div className="text-[10px] font-bold text-slate-400 uppercase flex items-center gap-1"><ImageIcon size={10}/> Preview (Mobile)</div>
+                                       {/* Kích thước: Rộng 250px, Cao 450px (Form điện thoại) */}
+                                       <div className="w-[250px] h-[450px] bg-black rounded-2xl border-4 border-slate-300 overflow-hidden flex items-center justify-center relative shadow-2xl">
                                           {item.media ? (
-                                             item.media.match(/\.(jpeg|jpg|gif|png)$/) != null ? (
-                                                <img src={item.media} alt="Preview" className="w-full h-full object-cover"/>
+                                             isImage(item.media) ? (
+                                                <img src={item.media} alt="Preview" className="w-full h-full object-contain"/> 
                                              ) : (
-                                                <iframe 
-                                                  src={getEmbedUrl(item.media)} 
-                                                  className="w-full h-full border-none" 
-                                                  allowFullScreen 
-                                                  title="Preview Video"
-                                                  scrolling="no"
-                                                />
+                                                <iframe src={getEmbedUrl(item.media)} className="w-full h-full border-none" allowFullScreen title="Preview" scrolling="no"/>
                                              )
                                           ) : (
-                                             <div className="w-full h-full flex flex-col items-center justify-center text-slate-500 bg-slate-100">
-                                                <PlayCircle size={32} className="mb-2 opacity-50"/>
-                                                <span className="text-xs">Chưa có video/ảnh</span>
+                                             <div className="text-center text-slate-500">
+                                                 <PlayCircle size={32} className="mx-auto mb-2 opacity-50"/>
+                                                 <span className="text-xs">Chưa có media</span>
                                              </div>
                                           )}
                                        </div>
                                     </div>
+
+                                    {/* 2. KHUNG NHẬP LIỆU (BÊN PHẢI) */}
+                                    <div className="flex-1 flex flex-col gap-4 h-[450px]">
+                                       <div className="grid grid-cols-2 gap-4">
+                                           <div className="space-y-3">
+                                               <div>
+                                                  <div className="flex items-center gap-1 mb-1 text-[10px] font-bold text-slate-400 uppercase"><Facebook size={10}/> Link Bài Viết</div>
+                                                  <div className="flex gap-1">
+                                                     <input readOnly={!canEdit} className="flex-1 p-2 text-xs border rounded bg-white outline-none focus:ring-1 focus:ring-blue-400" placeholder="Link FB..." value={item.link} onChange={(e) => handleUpdate(item.id, 'link', e.target.value)}/>
+                                                     {item.link && <a href={item.link} target="_blank" className="p-2 bg-blue-100 text-blue-600 rounded hover:bg-blue-200"><ExternalLink size={14}/></a>}
+                                                  </div>
+                                               </div>
+                                               <div>
+                                                  <div className="flex items-center gap-1 mb-1 text-[10px] font-bold text-slate-400 uppercase"><PlayCircle size={10}/> Link Media</div>
+                                                  <input readOnly={!canEdit} className="w-full p-2 text-xs border rounded bg-white outline-none focus:ring-1 focus:ring-orange-400" placeholder="Link video/ảnh..." value={item.media} onChange={(e) => handleUpdate(item.id, 'media', e.target.value)}/>
+                                               </div>
+                                           </div>
+                                           <div>
+                                               <div className="text-[10px] font-bold text-slate-400 uppercase mb-1">Tiêu đề</div>
+                                               <textarea readOnly={!canEdit} className="w-full p-2 text-xs border rounded bg-white font-bold text-slate-700 h-24 resize-none" placeholder="Tiêu đề..." value={item.headline} onChange={(e) => handleUpdate(item.id, 'headline', e.target.value)}/>
+                                           </div>
+                                       </div>
+                                       
+                                       <div className="flex-1 flex flex-col">
+                                          <div className="text-[10px] font-bold text-slate-400 uppercase mb-1">Nội dung Content</div>
+                                          <textarea readOnly={!canEdit} className="w-full flex-1 p-3 text-xs border rounded bg-white resize-none outline-none leading-relaxed" placeholder="Nội dung..." value={item.content} onChange={(e) => handleUpdate(item.id, 'content', e.target.value)}/>
+                                       </div>
+                                    </div>
+
                                  </div>
                               </td>
                            </tr>
