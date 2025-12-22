@@ -1,9 +1,10 @@
 import React, { useState, useMemo, useEffect } from 'react';
 import { 
-  Plus, Search, Settings, 
-  ChevronDown, ChevronUp, ChevronRight, 
-  Link as LinkIcon, Trash2, X, 
-  Undo, Redo, BarChart3, Lock
+  Plus, Search, X, 
+  ChevronDown, ChevronRight, 
+  Link as LinkIcon, Trash2, 
+  BarChart3, Lock, PlayCircle, Image as ImageIcon,
+  Facebook
 } from 'lucide-react';
 
 // --- IMPORT FIREBASE & AUTH ---
@@ -50,7 +51,7 @@ export default function AdsManager() {
   }, []);
 
   const saveToCloud = (newData, newConfig) => {
-    if (!canEdit) return; // Bảo vệ đầu ghi
+    if (!canEdit) return; 
     set(ref(db, 'ads_manager'), { data: newData, config: newConfig }).catch(console.error);
   };
 
@@ -66,19 +67,29 @@ export default function AdsManager() {
     saveToCloud(nextData, nextConfig);
   };
 
-  const undo = () => { if (canEdit && historyIndex > 0) setHistoryIndex(historyIndex - 1); };
-  const redo = () => { if (canEdit && historyIndex < history.length - 1) setHistoryIndex(historyIndex + 1); };
-
   // --- STATE CỤC BỘ ---
   const [filterCourse, setFilterCourse] = useState("ALL");
   const [searchQuery, setSearchQuery] = useState("");
   const [expandedRow, setExpandedRow] = useState(null);
-  const [sortConfig, setSortConfig] = useState({ key: null, direction: 'asc' });
-  const [showConfigModal, setShowConfigModal] = useState(false);
 
   const fmt = (num) => new Intl.NumberFormat('vi-VN').format(num || 0);
 
-  // --- LOGIC XỬ LÝ ---
+  // --- LOGIC XỬ LÝ MEDIA (MỚI) ---
+  const getEmbedUrl = (url) => {
+    if (!url) return null;
+    // Xử lý link Facebook để nhúng
+    if (url.includes('facebook.com') || url.includes('fb.watch')) {
+        // Đây là cách trick để nhúng video FB: dùng plugin page
+        return `https://www.facebook.com/plugins/video.php?href=${encodeURIComponent(url)}&show_text=false&t=0`;
+    }
+    if (url.includes('youtube.com') || url.includes('youtu.be')) {
+        const videoId = url.split('v=')[1] || url.split('/').pop();
+        return `https://www.youtube.com/embed/${videoId}`;
+    }
+    return url; // Các link ảnh trực tiếp
+  };
+
+  // --- LOGIC XỬ LÝ KHÁC ---
   const handleAddCourse = () => {
     if (!canEdit) return;
     const val = prompt("Nhập tên khóa mới (VD: K38):");
@@ -154,17 +165,6 @@ export default function AdsManager() {
     if (searchQuery) result = result.filter(item => item.name?.toLowerCase().includes(searchQuery.toLowerCase()));
     return result;
   }, [data, filterCourse, searchQuery]);
-
-  const summary = useMemo(() => {
-    return processedData.reduce((acc, item) => ({
-      spend: acc.spend + (item.spend || 0),
-      mess: acc.mess + (item.mess || 0),
-      orders: acc.orders + (item.orders || 0),
-      rev: acc.rev + (item.rev || 0),
-      cost: acc.cost + (item.cost || 0),
-      profit: acc.profit + (item.profit || 0)
-    }), { spend: 0, mess: 0, orders: 0, rev: 0, cost: 0, profit: 0 });
-  }, [processedData]);
 
   if (!canView) return (
     <div className="flex flex-col items-center justify-center h-screen bg-slate-50">
@@ -258,7 +258,18 @@ export default function AdsManager() {
                            <td className="p-3"><input readOnly={!canEdit} className="w-full bg-transparent outline-none font-bold text-slate-700" value={item.name} onChange={(e) => handleUpdate(item.id, 'name', e.target.value)}/></td>
                            <td className="p-3"><input readOnly={!canEdit} className="w-full bg-transparent outline-none text-slate-500" value={item.headline} onChange={(e) => handleUpdate(item.id, 'headline', e.target.value)}/></td>
                            <td className="p-3 text-center"><select disabled={!canEdit} className="bg-transparent outline-none cursor-pointer" value={item.format} onChange={(e) => handleUpdate(item.id, 'format', e.target.value)}>{config.formats.map(f => <option key={f} value={f}>{f}</option>)}</select></td>
-                           <td className="p-3 text-center text-blue-600"><LinkIcon size={14} className="mx-auto" onClick={() => item.link && window.open(item.link, '_blank')}/></td>
+                           
+                           {/* Cột Link Mở Nhanh */}
+                           <td className="p-3 text-center text-blue-600">
+                             {item.link ? (
+                               <a href={item.link} target="_blank" rel="noopener noreferrer" className="hover:text-orange-500">
+                                  <Facebook size={14} className="mx-auto"/>
+                               </a>
+                             ) : (
+                               <span className="text-slate-300">-</span>
+                             )}
+                           </td>
+
                            <td className="p-3 text-right"><input readOnly={!canEdit} className="w-full text-right bg-transparent outline-none" value={fmt(item.budget)} onChange={(e) => handleUpdate(item.id, 'budget', e.target.value)}/></td>
                            <td className="p-3 text-right font-medium bg-blue-50/10 text-blue-800"><input readOnly={!canEdit} className="w-full text-right bg-transparent outline-none font-bold" value={fmt(item.spend)} onChange={(e) => handleUpdate(item.id, 'spend', e.target.value)}/></td>
                            <td className="p-3 text-center font-bold bg-blue-50/10 text-blue-600"><input readOnly={!canEdit} className="w-full text-center bg-transparent outline-none" value={fmt(item.mess)} onChange={(e) => handleUpdate(item.id, 'mess', e.target.value)}/></td>
@@ -278,10 +289,82 @@ export default function AdsManager() {
                            <td className="p-3 text-center"><div className={`w-8 h-4 rounded-full relative transition-colors ${canEdit ? 'cursor-pointer' : 'cursor-default'} ${item.status === 'ON' ? 'bg-green-500' : 'bg-slate-300'}`} onClick={() => canEdit && handleUpdate(item.id, 'status', item.status === 'ON' ? 'OFF' : 'ON')}><div className={`w-2 h-2 bg-white rounded-full absolute top-1 transition-all ${item.status === 'ON' ? 'left-5' : 'left-1'}`}></div></div></td>
                            <td className="p-3 text-center"><button disabled={!canEdit} onClick={() => handleDelete(item.id)} className={`transition-colors ${canEdit ? 'text-slate-300 hover:text-red-500' : 'text-slate-50'}`}><Trash2 size={14}/></button></td>
                         </tr>
+                        
+                        {/* PHẦN MEDIA MỞ RỘNG */}
                         {expandedRow === item.id && (
-                           <tr className="bg-slate-50 border-b border-slate-200">
+                           <tr className="bg-slate-50 border-b border-slate-200 animate-in fade-in slide-in-from-top-2">
                               <td className="sticky left-0 bg-slate-50 z-10 border-r border-slate-100"></td>
-                              <td colSpan="25" className="p-4"><div className="flex gap-4"><div className="w-1/3"><div className="font-bold mb-1 text-xs text-slate-500 uppercase flex items-center gap-2">Link & Media</div><input readOnly={!canEdit} className="w-full p-2 text-xs border rounded mb-2 bg-white" placeholder="Link Ads..." value={item.link} onChange={(e) => handleUpdate(item.id, 'link', e.target.value)}/><input readOnly={!canEdit} className="w-full p-2 text-xs border rounded bg-white" placeholder="Link Embed..." value={item.media} onChange={(e) => handleUpdate(item.id, 'media', e.target.value)}/></div><div className="w-1/3"><div className="font-bold mb-1 text-xs text-slate-500 uppercase">Nội dung</div><textarea readOnly={!canEdit} className="w-full h-24 p-2 text-xs border rounded resize-none bg-white break-words" value={item.content} onChange={(e) => handleUpdate(item.id, 'content', e.target.value)}/></div><div className="w-1/3"><div className="font-bold mb-1 text-xs text-slate-500 uppercase">Preview</div><div className="aspect-video bg-black rounded overflow-hidden flex items-center justify-center text-white text-xs">{item.media ? <iframe src={item.media} className="w-full h-full" title="preview"/> : "Chưa có media"}</div></div></div></td>
+                              <td colSpan="25" className="p-6">
+                                 <div className="flex gap-6">
+                                    {/* Cột 1: Nhập liệu Link */}
+                                    <div className="w-1/3 space-y-4">
+                                       <div>
+                                          <div className="font-bold mb-2 text-xs text-slate-500 uppercase flex items-center gap-2">
+                                            <Facebook size={14}/> Link Bài Quảng Cáo (Để click xem)
+                                          </div>
+                                          <input 
+                                            readOnly={!canEdit} 
+                                            className="w-full p-2.5 text-xs border border-slate-300 rounded-lg bg-white focus:ring-2 focus:ring-blue-100 outline-none" 
+                                            placeholder="Dán link bài viết Facebook vào đây..." 
+                                            value={item.link} 
+                                            onChange={(e) => handleUpdate(item.id, 'link', e.target.value)}
+                                          />
+                                       </div>
+                                       <div>
+                                          <div className="font-bold mb-2 text-xs text-slate-500 uppercase flex items-center gap-2">
+                                            <PlayCircle size={14}/> Link Video/Ảnh (Để xem trực tiếp)
+                                          </div>
+                                          <input 
+                                            readOnly={!canEdit} 
+                                            className="w-full p-2.5 text-xs border border-slate-300 rounded-lg bg-white focus:ring-2 focus:ring-orange-100 outline-none" 
+                                            placeholder="Dán link video FB/Youtube hoặc link ảnh..." 
+                                            value={item.media} 
+                                            onChange={(e) => handleUpdate(item.id, 'media', e.target.value)}
+                                          />
+                                          <p className="text-[10px] text-slate-400 mt-1 italic">Hỗ trợ link video Facebook, Youtube hoặc link ảnh trực tiếp.</p>
+                                       </div>
+                                    </div>
+
+                                    {/* Cột 2: Nội dung text */}
+                                    <div className="w-1/3">
+                                       <div className="font-bold mb-2 text-xs text-slate-500 uppercase">Nội dung Content</div>
+                                       <textarea 
+                                          readOnly={!canEdit} 
+                                          className="w-full h-40 p-3 text-xs border border-slate-300 rounded-lg resize-none bg-white focus:ring-2 focus:ring-blue-100 outline-none" 
+                                          placeholder="Viết nội dung quảng cáo ở đây..."
+                                          value={item.content} 
+                                          onChange={(e) => handleUpdate(item.id, 'content', e.target.value)}
+                                       />
+                                    </div>
+
+                                    {/* Cột 3: Preview Media */}
+                                    <div className="w-1/3">
+                                       <div className="font-bold mb-2 text-xs text-slate-500 uppercase flex items-center gap-2">
+                                          <ImageIcon size={14}/> Xem trước
+                                       </div>
+                                       <div className="aspect-video bg-black rounded-xl overflow-hidden shadow-lg border border-slate-200 relative group">
+                                          {item.media ? (
+                                             item.media.match(/\.(jpeg|jpg|gif|png)$/) != null ? (
+                                                <img src={item.media} alt="Preview" className="w-full h-full object-cover"/>
+                                             ) : (
+                                                <iframe 
+                                                  src={getEmbedUrl(item.media)} 
+                                                  className="w-full h-full border-none" 
+                                                  allowFullScreen 
+                                                  title="Preview Video"
+                                                  scrolling="no"
+                                                />
+                                             )
+                                          ) : (
+                                             <div className="w-full h-full flex flex-col items-center justify-center text-slate-500 bg-slate-100">
+                                                <PlayCircle size={32} className="mb-2 opacity-50"/>
+                                                <span className="text-xs">Chưa có video/ảnh</span>
+                                             </div>
+                                          )}
+                                       </div>
+                                    </div>
+                                 </div>
+                              </td>
                            </tr>
                         )}
                      </React.Fragment>
