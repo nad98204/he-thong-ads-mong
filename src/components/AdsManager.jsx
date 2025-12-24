@@ -5,7 +5,8 @@ import {
   Link as LinkIcon, Trash2, 
   BarChart3, Lock, PlayCircle, Image as ImageIcon,
   Facebook, ExternalLink,
-  Copy, Edit3, CheckSquare // Đã thêm các icon mới cần dùng
+  Copy, Edit3, CheckSquare,
+  ArrowUpDown, ArrowUp, ArrowDown // Icon mới cho tính năng Sort
 } from 'lucide-react';
 
 // --- GIỮ NGUYÊN IMPORT GỐC CỦA BẠN ---
@@ -71,7 +72,10 @@ export default function AdsManager() {
   const [searchQuery, setSearchQuery] = useState("");
   const [expandedRow, setExpandedRow] = useState(null);
 
-  // --- STATE MỚI CHO TÍNH NĂNG NÂNG CẤP ---
+  // --- STATE MỚI: SORTING ---
+  const [sortConfig, setSortConfig] = useState({ key: 'date', direction: 'desc' });
+
+  // --- STATE MỚI CHO TÍNH NĂNG CONTEXT MENU & IMPORT ---
   const [contextMenu, setContextMenu] = useState({ visible: false, x: 0, y: 0, course: null });
   const [isModalOpen, setIsModalOpen] = useState(false);
   const [modalTab, setModalTab] = useState('new'); // 'new' | 'import'
@@ -168,7 +172,7 @@ export default function AdsManager() {
   };
 
   const handleCreateNew = () => {
-      const newId = `C${Math.floor(Math.random() * 10000)}`; // ID logic cũ của bạn
+      const newId = `C${Math.floor(Math.random() * 10000)}`;
       const today = new Date().toISOString().split('T')[0];
       const newItem = {
         id: newId, 
@@ -194,10 +198,10 @@ export default function AdsManager() {
       
       const newImportedItems = itemsToImport.map(item => ({
           ...item,
-          id: `C${Math.floor(Math.random() * 10000000)}`, // Sinh ID mới
-          course: filterCourse, // Gán vào khóa hiện tại
+          id: `C${Math.floor(Math.random() * 10000000)}`,
+          course: filterCourse,
           date: today,
-          spend: 0, mess: 0, mong: 0, thanh: 0, cost: 0, // Reset metrics
+          spend: 0, mess: 0, mong: 0, thanh: 0, cost: 0,
           action: "Chờ", status: "DRAFT", eval: "🆕 New", manualEval: null
       }));
 
@@ -205,12 +209,13 @@ export default function AdsManager() {
       setIsModalOpen(false);
   };
 
+  // --- LOGIC TÍNH TOÁN METRICS ---
   const calculateMetrics = (item) => {
     const totalOrders = (Number(item.mong) || 0) + (Number(item.thanh) || 0);
     const revenue = totalOrders * (Number(item.price) || 0);
     const cpm = item.mess > 0 ? Math.round(item.spend / item.mess) : 0;
     const rate = item.mess > 0 ? ((totalOrders / item.mess) * 100).toFixed(1) : 0;
-    const profit = revenue - (item.spend || 0) - (item.cost || 0);
+    const profit = revenue - (Number(item.spend) || 0) - (Number(item.cost) || 0);
     const roas = item.spend > 0 ? (revenue / item.spend).toFixed(2) : 0;
     
     let evaluation = item.eval || "🆕 New";
@@ -243,12 +248,78 @@ export default function AdsManager() {
     if(confirm("Xóa dòng này?")) pushToHistory(data.filter(i => i.id !== id), null); 
   };
 
+  // --- XỬ LÝ SẮP XẾP (SORTING) ---
+  const handleSort = (key) => {
+      let direction = 'desc';
+      if (sortConfig.key === key && sortConfig.direction === 'desc') {
+          direction = 'asc';
+      }
+      setSortConfig({ key, direction });
+  };
+
   const processedData = useMemo(() => {
+    // 1. Tính toán
     let result = data.map(calculateMetrics);
+    
+    // 2. Lọc
     if (filterCourse !== "ALL") result = result.filter(item => item.course === filterCourse);
     if (searchQuery) result = result.filter(item => item.name?.toLowerCase().includes(searchQuery.toLowerCase()));
+
+    // 3. Sắp xếp (Sorting)
+    if (sortConfig.key) {
+        result.sort((a, b) => {
+            let valA = a[sortConfig.key];
+            let valB = b[sortConfig.key];
+
+            // Xử lý số và chuỗi
+            if (typeof valA === 'string' && !isNaN(Date.parse(valA)) && sortConfig.key === 'date') {
+                 // Sort ngày tháng
+                 valA = new Date(valA).getTime();
+                 valB = new Date(valB).getTime();
+            } else if (!isNaN(Number(valA)) && !isNaN(Number(valB))) {
+                 // Sort số
+                 valA = Number(valA);
+                 valB = Number(valB);
+            } else {
+                 // Sort text thường
+                 valA = valA ? valA.toString().toLowerCase() : '';
+                 valB = valB ? valB.toString().toLowerCase() : '';
+            }
+
+            if (valA < valB) return sortConfig.direction === 'asc' ? -1 : 1;
+            if (valA > valB) return sortConfig.direction === 'asc' ? 1 : -1;
+            return 0;
+        });
+    }
+
     return result;
-  }, [data, filterCourse, searchQuery]);
+  }, [data, filterCourse, searchQuery, sortConfig]);
+
+  // --- TÍNH TOÁN HÀNG TỔNG (SUMMARY) ---
+  const summary = useMemo(() => {
+      if (processedData.length === 0) return null;
+
+      const sum = processedData.reduce((acc, item) => {
+          acc.budget += Number(item.budget) || 0;
+          acc.spend += Number(item.spend) || 0;
+          acc.mess += Number(item.mess) || 0;
+          acc.mong += Number(item.mong) || 0;
+          acc.thanh += Number(item.thanh) || 0;
+          acc.orders += Number(item.orders) || 0;
+          acc.rev += Number(item.rev) || 0;
+          acc.cost += Number(item.cost) || 0;
+          acc.profit += Number(item.profit) || 0;
+          return acc;
+      }, { budget: 0, spend: 0, mess: 0, mong: 0, thanh: 0, orders: 0, rev: 0, cost: 0, profit: 0 });
+
+      // Tính lại các chỉ số trung bình (Recalculate)
+      const avgCpm = sum.mess > 0 ? Math.round(sum.spend / sum.mess) : 0;
+      const avgRate = sum.mess > 0 ? ((sum.orders / sum.mess) * 100).toFixed(1) : 0;
+      const avgRoas = sum.spend > 0 ? (sum.rev / sum.spend).toFixed(2) : 0;
+      const avgPrice = sum.orders > 0 ? Math.round(sum.rev / sum.orders) : 0;
+
+      return { ...sum, avgCpm, avgRate, avgRoas, avgPrice };
+  }, [processedData]);
 
   // Data cho Import Tab
   const importDataList = useMemo(() => {
@@ -258,6 +329,24 @@ export default function AdsManager() {
       }
       return result.sort((a,b) => b.roas - a.roas);
   }, [data, importSearch]);
+
+  // Helper render Header có Sort Icon
+  const SortableHeader = ({ label, sortKey, align = 'left', className = '' }) => (
+      <th 
+        className={`p-3 cursor-pointer hover:bg-slate-700 transition-colors select-none ${className}`}
+        onClick={() => handleSort(sortKey)}
+        style={{ textAlign: align }}
+      >
+          <div className={`flex items-center gap-1 ${align === 'right' ? 'justify-end' : align === 'center' ? 'justify-center' : 'justify-start'}`}>
+              {label}
+              {sortConfig.key === sortKey ? (
+                  sortConfig.direction === 'asc' ? <ArrowUp size={12} className="text-orange-400"/> : <ArrowDown size={12} className="text-orange-400"/>
+              ) : (
+                  <ArrowUpDown size={12} className="text-slate-500 opacity-0 group-hover/th:opacity-50"/>
+              )}
+          </div>
+      </th>
+  );
 
   if (!canView) return (
     <div className="flex flex-col items-center justify-center h-screen bg-slate-50">
@@ -280,20 +369,18 @@ export default function AdsManager() {
             {config.courses.map(k => (
                <div 
                     key={k} 
-                    onContextMenu={(e) => handleTabContextMenu(e, k)} // Thêm sự kiện chuột phải
+                    onContextMenu={(e) => handleTabContextMenu(e, k)} 
                     className={`group relative flex items-center px-4 py-2 rounded-md cursor-pointer transition-all whitespace-nowrap select-none ${filterCourse === k ? 'bg-slate-800 text-white shadow' : 'text-slate-500 hover:bg-slate-100'}`} 
                     onClick={() => setFilterCourse(k)}
                >
                   <span className="text-sm font-bold mr-1">{k === "ALL" ? "TỔNG HỢP" : k}</span>
-                  {/* Logic cũ của bạn cho nút xóa X (giữ lại nếu cần, hoặc dùng Menu chuột phải mới) */}
-                  {/* {k !== "ALL" && canEdit && (<button onClick={(e) => handleDeleteCourse(k, e)} ...><X size={10} /></button>)} */}
                </div>
             ))}
             {canEdit && <button onClick={handleAddCourse} className="px-3 py-2 text-slate-400 hover:text-orange-600 hover:bg-orange-50 rounded-lg ml-1"><Plus size={16}/></button>}
          </div>
       </div>
 
-      {/* CONTEXT MENU (MỚI) */}
+      {/* CONTEXT MENU */}
       {contextMenu.visible && (
           <div ref={contextMenuRef} className="fixed z-50 bg-white rounded-lg shadow-xl border border-slate-200 py-1 w-40 animate-in fade-in zoom-in-95 duration-100" style={{ top: contextMenu.y, left: contextMenu.x }}>
               <div className="px-3 py-2 text-xs font-bold text-slate-400 border-b border-slate-100 mb-1 uppercase">Tab: {contextMenu.course}</div>
@@ -302,7 +389,7 @@ export default function AdsManager() {
           </div>
       )}
 
-      {/* TOOLBAR (Đã thay nút Thêm QC để mở Modal) */}
+      {/* TOOLBAR */}
       <div className="flex flex-col md:flex-row gap-3 mb-4 w-full">
          <div className="relative flex-1 group">
             <input value={searchQuery} onChange={(e) => setSearchQuery(e.target.value)} className="w-full pl-10 pr-4 py-2.5 rounded-xl border border-slate-200 text-sm focus:ring-2 focus:ring-orange-500 outline-none shadow-sm" placeholder="Tìm kiếm chiến dịch..."/>
@@ -311,7 +398,7 @@ export default function AdsManager() {
          <button onClick={openModal} disabled={!canEdit} className={`bg-orange-600 text-white px-4 py-2.5 rounded-xl font-bold shadow flex items-center gap-2 text-sm transition-all ${!canEdit ? 'opacity-50 grayscale cursor-not-allowed' : 'hover:bg-orange-700'}`}><Plus size={18}/> Thêm QC</button>
       </div>
 
-      {/* TABLE (GIỮ NGUYÊN) */}
+      {/* TABLE */}
       <div className="bg-white rounded-xl shadow-sm border border-slate-300 w-full overflow-hidden flex flex-col h-[calc(100vh-220px)]">
          <div className="overflow-auto w-full flex-1 relative custom-scrollbar">
             <table className="min-w-max w-full text-left border-collapse text-xs whitespace-nowrap relative">
@@ -325,26 +412,34 @@ export default function AdsManager() {
                   </tr>
                   <tr className="bg-slate-100 text-slate-600 border-b-2 border-slate-300">
                      <th className="p-3 sticky left-0 top-[40px] z-40 bg-slate-100 border-r border-slate-200"></th>
-                     <th className="p-3 w-28 sticky top-[40px] bg-slate-100">Ngày</th>
-                     <th className="p-3 w-24 text-center sticky top-[40px] bg-slate-100">Khóa</th>
-                     <th className="p-3 min-w-[200px] sticky top-[40px] bg-slate-100">Tên Bài</th>
+                     
+                     {/* UPDATE: Header có thể Sort */}
+                     <SortableHeader label="Ngày" sortKey="date" className="w-28 sticky top-[40px] bg-slate-100 group/th"/>
+                     <SortableHeader label="Khóa" sortKey="course" align="center" className="w-24 sticky top-[40px] bg-slate-100 group/th"/>
+                     <SortableHeader label="Tên Bài" sortKey="name" className="min-w-[200px] sticky top-[40px] bg-slate-100 group/th"/>
+                     
                      <th className="p-3 min-w-[150px] sticky top-[40px] bg-slate-100">Tiêu đề</th>
                      <th className="p-3 w-28 text-center sticky top-[40px] bg-slate-100">Định dạng</th>
                      <th className="p-3 w-20 text-center sticky top-[40px] bg-slate-100">Link</th>
-                     <th className="p-3 w-32 text-right border-r border-slate-300 sticky top-[40px] bg-slate-100">Ngân sách</th>
-                     <th className="p-3 w-32 text-right bg-blue-50 text-blue-800 sticky top-[40px]">Tiền Tiêu</th>
-                     <th className="p-3 w-20 text-center bg-blue-50 text-blue-800 sticky top-[40px]">Mess</th>
-                     <th className="p-3 w-28 text-right bg-blue-50 text-blue-800 sticky top-[40px]">Giá Mess</th>
-                     <th className="p-3 w-20 text-center bg-blue-50 text-blue-800 border-r border-blue-200 sticky top-[40px]">Rate</th>
-                     <th className="p-3 w-20 text-center bg-green-50 sticky top-[40px]">Mong 🔥</th>
-                     <th className="p-3 w-20 text-center bg-green-50 sticky top-[40px]">Thành 💧</th>
-                     <th className="p-3 w-20 text-center bg-green-50 sticky top-[40px]">TỔNG</th>
-                     <th className="p-3 w-20 text-center bg-green-50 sticky top-[40px]">% Chốt</th>
-                     <th className="p-3 w-28 text-right bg-green-50 sticky top-[40px]">Giá Bán</th>
-                     <th className="p-3 w-32 text-right bg-green-50 text-green-800 font-bold sticky top-[40px]">DOANH THU</th>
-                     <th className="p-3 w-28 text-right bg-green-50 sticky top-[40px]">Tiền Gốc</th>
-                     <th className="p-3 w-32 text-right bg-green-50 text-green-800 font-bold sticky top-[40px]">LỢI NHUẬN</th>
-                     <th className="p-3 w-20 text-center bg-green-50 text-purple-700 font-black border-r border-green-200 sticky top-[40px]">ROAS</th>
+
+                     <SortableHeader label="Ngân sách" sortKey="budget" align="right" className="w-32 border-r border-slate-300 sticky top-[40px] bg-slate-100 group/th"/>
+                     
+                     <SortableHeader label="Tiền Tiêu" sortKey="spend" align="right" className="w-32 bg-blue-50 text-blue-800 sticky top-[40px] group/th"/>
+                     <SortableHeader label="Mess" sortKey="mess" align="center" className="w-20 bg-blue-50 text-blue-800 sticky top-[40px] group/th"/>
+                     <SortableHeader label="Giá Mess" sortKey="cpm" align="right" className="w-28 bg-blue-50 text-blue-800 sticky top-[40px] group/th"/>
+                     <SortableHeader label="Rate" sortKey="rate" align="center" className="w-20 bg-blue-50 text-blue-800 border-r border-blue-200 sticky top-[40px] group/th"/>
+
+                     <SortableHeader label="Mong 🔥" sortKey="mong" align="center" className="w-20 bg-green-50 sticky top-[40px] group/th"/>
+                     <SortableHeader label="Thành 💧" sortKey="thanh" align="center" className="w-20 bg-green-50 sticky top-[40px] group/th"/>
+                     <SortableHeader label="TỔNG" sortKey="orders" align="center" className="w-20 bg-green-50 sticky top-[40px] group/th"/>
+                     <SortableHeader label="% Chốt" sortKey="rate" align="center" className="w-20 bg-green-50 sticky top-[40px] group/th"/>
+                     
+                     <SortableHeader label="Giá Bán" sortKey="price" align="right" className="w-28 bg-green-50 sticky top-[40px] group/th"/>
+                     <SortableHeader label="DOANH THU" sortKey="rev" align="right" className="w-32 bg-green-50 text-green-800 font-bold sticky top-[40px] group/th"/>
+                     <SortableHeader label="Tiền Gốc" sortKey="cost" align="right" className="w-28 bg-green-50 sticky top-[40px] group/th"/>
+                     <SortableHeader label="LỢI NHUẬN" sortKey="profit" align="right" className="w-32 bg-green-50 text-green-800 font-bold sticky top-[40px] group/th"/>
+                     <SortableHeader label="ROAS" sortKey="roas" align="center" className="w-20 bg-green-50 text-purple-700 font-black border-r border-green-200 sticky top-[40px] group/th"/>
+                     
                      <th className="p-3 w-28 text-center bg-orange-50 sticky top-[40px]">Đánh giá</th>
                      <th className="p-3 w-28 text-center bg-orange-50 sticky top-[40px]">Hành động</th>
                      <th className="p-3 w-20 text-center bg-orange-50 sticky top-[40px]">Status</th>
@@ -364,18 +459,7 @@ export default function AdsManager() {
                            <td className="p-3"><input readOnly={!canEdit} className="w-full bg-transparent outline-none font-bold text-slate-700" value={item.name} onChange={(e) => handleUpdate(item.id, 'name', e.target.value)}/></td>
                            <td className="p-3"><input readOnly={!canEdit} className="w-full bg-transparent outline-none text-slate-500" value={item.headline} onChange={(e) => handleUpdate(item.id, 'headline', e.target.value)}/></td>
                            <td className="p-3 text-center"><select disabled={!canEdit} className="bg-transparent outline-none cursor-pointer" value={item.format} onChange={(e) => handleUpdate(item.id, 'format', e.target.value)}>{config.formats.map(f => <option key={f} value={f}>{f}</option>)}</select></td>
-                           
-                           {/* Cột Link Mở Nhanh */}
-                           <td className="p-3 text-center text-blue-600">
-                             {item.link ? (
-                               <a href={item.link} target="_blank" rel="noopener noreferrer" className="hover:text-orange-500">
-                                  <Facebook size={14} className="mx-auto"/>
-                               </a>
-                             ) : (
-                               <span className="text-slate-300">-</span>
-                             )}
-                           </td>
-
+                           <td className="p-3 text-center text-blue-600">{item.link ? (<a href={item.link} target="_blank" rel="noopener noreferrer" className="hover:text-orange-500"><Facebook size={14} className="mx-auto"/></a>) : (<span className="text-slate-300">-</span>)}</td>
                            <td className="p-3 text-right"><input readOnly={!canEdit} className="w-full text-right bg-transparent outline-none" value={fmt(item.budget)} onChange={(e) => handleUpdate(item.id, 'budget', e.target.value)}/></td>
                            <td className="p-3 text-right font-medium bg-blue-50/10 text-blue-800"><input readOnly={!canEdit} className="w-full text-right bg-transparent outline-none font-bold" value={fmt(item.spend)} onChange={(e) => handleUpdate(item.id, 'spend', e.target.value)}/></td>
                            <td className="p-3 text-center font-bold bg-blue-50/10 text-blue-600"><input readOnly={!canEdit} className="w-full text-center bg-transparent outline-none" value={fmt(item.mess)} onChange={(e) => handleUpdate(item.id, 'mess', e.target.value)}/></td>
@@ -396,60 +480,35 @@ export default function AdsManager() {
                            <td className="p-3 text-center"><button disabled={!canEdit} onClick={() => handleDelete(item.id)} className={`transition-colors ${canEdit ? 'text-slate-300 hover:text-red-500' : 'text-slate-50'}`}><Trash2 size={14}/></button></td>
                         </tr>
                         
-                        {/* --- EXPANDED ROW (Preview Dáng Đứng - Hỗ trợ cả ẢNH + VIDEO) --- */}
                         {expandedRow === item.id && (
                            <tr className="bg-slate-50 border-b border-slate-200 animate-in fade-in slide-in-from-top-2">
                               <td className="sticky left-0 bg-slate-50 z-10 border-r border-slate-100"></td>
                               <td colSpan="25" className="p-6 bg-slate-50">
                                  <div className="flex gap-6 items-start">
-                                    
-                                    {/* 1. KHUNG PREVIEW */}
                                     <div className="shrink-0 flex flex-col gap-2">
                                        <div className="text-[10px] font-bold text-slate-400 uppercase flex items-center gap-1"><ImageIcon size={10}/> Preview (Mobile)</div>
                                        <div className="w-[250px] h-[450px] bg-black rounded-2xl border-4 border-slate-300 overflow-hidden flex items-center justify-center relative shadow-2xl">
                                           {item.media ? (
-                                             isImage(item.media) ? (
-                                                <img src={item.media} alt="Preview" className="w-full h-full object-contain"/> 
-                                             ) : (
-                                                <iframe src={getEmbedUrl(item.media)} className="w-full h-full border-none" allowFullScreen title="Preview" scrolling="no"/>
-                                             )
-                                          ) : (
-                                             <div className="text-center text-slate-500">
-                                                 <PlayCircle size={32} className="mx-auto mb-2 opacity-50"/>
-                                                 <span className="text-xs">Chưa có media</span>
-                                             </div>
-                                          )}
+                                             isImage(item.media) ? (<img src={item.media} alt="Preview" className="w-full h-full object-contain"/>) : (<iframe src={getEmbedUrl(item.media)} className="w-full h-full border-none" allowFullScreen title="Preview" scrolling="no"/>)
+                                          ) : (<div className="text-center text-slate-500"><PlayCircle size={32} className="mx-auto mb-2 opacity-50"/><span className="text-xs">Chưa có media</span></div>)}
                                        </div>
                                     </div>
-
-                                    {/* 2. KHUNG NHẬP LIỆU (BÊN PHẢI) */}
                                     <div className="flex-1 flex flex-col gap-4 h-[450px]">
                                        <div className="grid grid-cols-2 gap-4">
                                            <div className="space-y-3">
                                                <div>
                                                   <div className="flex items-center gap-1 mb-1 text-[10px] font-bold text-slate-400 uppercase"><Facebook size={10}/> Link Bài Viết</div>
-                                                  <div className="flex gap-1">
-                                                     <input readOnly={!canEdit} className="flex-1 p-2 text-xs border rounded bg-white outline-none focus:ring-1 focus:ring-blue-400" placeholder="Link FB..." value={item.link} onChange={(e) => handleUpdate(item.id, 'link', e.target.value)}/>
-                                                     {item.link && <a href={item.link} target="_blank" className="p-2 bg-blue-100 text-blue-600 rounded hover:bg-blue-200"><ExternalLink size={14}/></a>}
-                                                  </div>
+                                                  <div className="flex gap-1"><input readOnly={!canEdit} className="flex-1 p-2 text-xs border rounded bg-white outline-none focus:ring-1 focus:ring-blue-400" placeholder="Link FB..." value={item.link} onChange={(e) => handleUpdate(item.id, 'link', e.target.value)}/>{item.link && <a href={item.link} target="_blank" className="p-2 bg-blue-100 text-blue-600 rounded hover:bg-blue-200"><ExternalLink size={14}/></a>}</div>
                                                </div>
                                                <div>
                                                   <div className="flex items-center gap-1 mb-1 text-[10px] font-bold text-slate-400 uppercase"><PlayCircle size={10}/> Link Media</div>
                                                   <input readOnly={!canEdit} className="w-full p-2 text-xs border rounded bg-white outline-none focus:ring-1 focus:ring-orange-400" placeholder="Link video/ảnh..." value={item.media} onChange={(e) => handleUpdate(item.id, 'media', e.target.value)}/>
                                                </div>
                                            </div>
-                                           <div>
-                                               <div className="text-[10px] font-bold text-slate-400 uppercase mb-1">Tiêu đề</div>
-                                               <textarea readOnly={!canEdit} className="w-full p-2 text-xs border rounded bg-white font-bold text-slate-700 h-24 resize-none" placeholder="Tiêu đề..." value={item.headline} onChange={(e) => handleUpdate(item.id, 'headline', e.target.value)}/>
-                                           </div>
+                                           <div><div className="text-[10px] font-bold text-slate-400 uppercase mb-1">Tiêu đề</div><textarea readOnly={!canEdit} className="w-full p-2 text-xs border rounded bg-white font-bold text-slate-700 h-24 resize-none" placeholder="Tiêu đề..." value={item.headline} onChange={(e) => handleUpdate(item.id, 'headline', e.target.value)}/></div>
                                        </div>
-                                       
-                                       <div className="flex-1 flex flex-col">
-                                          <div className="text-[10px] font-bold text-slate-400 uppercase mb-1">Nội dung Content</div>
-                                          <textarea readOnly={!canEdit} className="w-full flex-1 p-3 text-xs border rounded bg-white resize-none outline-none leading-relaxed" placeholder="Nội dung..." value={item.content} onChange={(e) => handleUpdate(item.id, 'content', e.target.value)}/>
-                                       </div>
+                                       <div className="flex-1 flex flex-col"><div className="text-[10px] font-bold text-slate-400 uppercase mb-1">Nội dung Content</div><textarea readOnly={!canEdit} className="w-full flex-1 p-3 text-xs border rounded bg-white resize-none outline-none leading-relaxed" placeholder="Nội dung..." value={item.content} onChange={(e) => handleUpdate(item.id, 'content', e.target.value)}/></div>
                                     </div>
-
                                  </div>
                               </td>
                            </tr>
@@ -457,172 +516,91 @@ export default function AdsManager() {
                      </React.Fragment>
                   ))}
                </tbody>
+
+               {/* --- UPDATE: STICKY FOOTER TỔNG KẾT --- */}
+               {summary && (
+                   <tfoot className="sticky bottom-0 z-20 shadow-[0_-4px_6px_-1px_rgba(0,0,0,0.1)]">
+                       <tr className="bg-yellow-100 text-slate-900 font-bold border-t-2 border-slate-400 text-xs">
+                           <td className="p-3 text-center border-r border-slate-300 sticky left-0 bg-yellow-100">SUM</td>
+                           <td colSpan="6" className="p-3 text-right uppercase tracking-wider text-slate-500">Tổng Kết Chiến Dịch</td>
+                           
+                           <td className="p-3 text-right">{fmt(summary.budget)}</td>
+                           
+                           {/* Nhóm Tiền Tiêu */}
+                           <td className="p-3 text-right text-blue-800">{fmt(summary.spend)}</td>
+                           <td className="p-3 text-center text-blue-800">{fmt(summary.mess)}</td>
+                           <td className="p-3 text-right text-blue-800">{fmt(summary.avgCpm)}</td>
+                           <td className="p-3 text-center text-blue-800 border-r border-blue-300">{summary.avgRate}%</td>
+
+                           {/* Nhóm Đơn Hàng */}
+                           <td className="p-3 text-center">{summary.mong}</td>
+                           <td className="p-3 text-center">{summary.thanh}</td>
+                           <td className="p-3 text-center text-red-600 text-sm">{summary.orders}</td>
+                           <td className="p-3 text-center text-green-700">{summary.avgRate}%</td>
+
+                           {/* Nhóm Doanh Thu & Lợi Nhuận */}
+                           <td className="p-3 text-right">{fmt(summary.avgPrice)}</td>
+                           <td className="p-3 text-right text-green-800 text-sm">{fmt(summary.rev)}</td>
+                           <td className="p-3 text-right text-slate-500">{fmt(summary.cost)}</td>
+                           <td className={`p-3 text-right text-sm ${summary.profit > 0 ? 'text-green-700' : 'text-red-600'}`}>{fmt(summary.profit)}</td>
+                           
+                           <td className="p-3 text-center text-purple-800 border-r border-slate-300">{summary.avgRoas}x</td>
+                           <td colSpan="4" className="bg-yellow-50"></td>
+                       </tr>
+                   </tfoot>
+               )}
             </table>
          </div>
       </div>
 
-      {/* --- IMPORT MODAL (MỚI THÊM) --- */}
+      {/* --- IMPORT MODAL (GIỮ NGUYÊN) --- */}
       {isModalOpen && (
           <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 backdrop-blur-sm p-4 animate-in fade-in duration-200">
               <div className="bg-white w-full max-w-4xl rounded-2xl shadow-2xl flex flex-col max-h-[90vh]">
-                  {/* Modal Header */}
                   <div className="p-6 border-b border-slate-100 flex justify-between items-center">
-                      <div>
-                          <h2 className="text-xl font-bold text-slate-800">Thêm Quảng Cáo Vào {filterCourse}</h2>
-                          <p className="text-slate-500 text-sm">Tạo mới hoặc tái sử dụng quảng cáo cũ hiệu quả</p>
-                      </div>
+                      <div><h2 className="text-xl font-bold text-slate-800">Thêm Quảng Cáo Vào {filterCourse}</h2><p className="text-slate-500 text-sm">Tạo mới hoặc tái sử dụng quảng cáo cũ hiệu quả</p></div>
                       <button onClick={() => setIsModalOpen(false)} className="p-2 hover:bg-slate-100 rounded-full transition-colors"><X size={20}/></button>
                   </div>
-
-                  {/* Tabs */}
                   <div className="flex border-b border-slate-200 px-6">
-                      <button 
-                        onClick={() => setModalTab('new')}
-                        className={`px-4 py-3 text-sm font-bold border-b-2 transition-colors ${modalTab === 'new' ? 'border-orange-500 text-orange-600' : 'border-transparent text-slate-500 hover:text-slate-700'}`}
-                      >
-                          ✨ Tạo mới tinh
-                      </button>
-                      <button 
-                        onClick={() => setModalTab('import')}
-                        className={`px-4 py-3 text-sm font-bold border-b-2 transition-colors ${modalTab === 'import' ? 'border-blue-500 text-blue-600' : 'border-transparent text-slate-500 hover:text-slate-700'}`}
-                      >
-                          ♻️ Chọn từ lịch sử
-                      </button>
+                      <button onClick={() => setModalTab('new')} className={`px-4 py-3 text-sm font-bold border-b-2 transition-colors ${modalTab === 'new' ? 'border-orange-500 text-orange-600' : 'border-transparent text-slate-500 hover:text-slate-700'}`}>✨ Tạo mới tinh</button>
+                      <button onClick={() => setModalTab('import')} className={`px-4 py-3 text-sm font-bold border-b-2 transition-colors ${modalTab === 'import' ? 'border-blue-500 text-blue-600' : 'border-transparent text-slate-500 hover:text-slate-700'}`}>♻️ Chọn từ lịch sử</button>
                   </div>
-
-                  {/* Modal Content */}
                   <div className="flex-1 overflow-auto p-6 bg-slate-50/50">
-                      
-                      {/* --- TAB 1: TẠO MỚI --- */}
                       {modalTab === 'new' && (
                           <div className="max-w-md mx-auto space-y-4 pt-4">
-                              <div>
-                                  <label className="block text-xs font-bold text-slate-500 uppercase mb-1">Tên bài quảng cáo</label>
-                                  <input 
-                                    autoFocus
-                                    className="w-full p-3 border rounded-xl outline-none focus:ring-2 focus:ring-orange-400 font-medium" 
-                                    value={newAdForm.name}
-                                    onChange={e => setNewAdForm({...newAdForm, name: e.target.value})}
-                                  />
-                              </div>
+                              <div><label className="block text-xs font-bold text-slate-500 uppercase mb-1">Tên bài quảng cáo</label><input autoFocus className="w-full p-3 border rounded-xl outline-none focus:ring-2 focus:ring-orange-400 font-medium" value={newAdForm.name} onChange={e => setNewAdForm({...newAdForm, name: e.target.value})}/></div>
                               <div className="grid grid-cols-2 gap-4">
-                                  <div>
-                                      <label className="block text-xs font-bold text-slate-500 uppercase mb-1">Ngân sách dự kiến</label>
-                                      <input 
-                                        type="number"
-                                        className="w-full p-3 border rounded-xl outline-none focus:ring-2 focus:ring-orange-400"
-                                        value={newAdForm.budget}
-                                        onChange={e => setNewAdForm({...newAdForm, budget: e.target.value})}
-                                      />
-                                  </div>
-                                  <div>
-                                      <label className="block text-xs font-bold text-slate-500 uppercase mb-1">Định dạng</label>
-                                      <select 
-                                        className="w-full p-3 border rounded-xl outline-none focus:ring-2 focus:ring-orange-400 bg-white"
-                                        value={newAdForm.format}
-                                        onChange={e => setNewAdForm({...newAdForm, format: e.target.value})}
-                                      >
-                                          {config.formats.map(f => <option key={f} value={f}>{f}</option>)}
-                                      </select>
-                                  </div>
+                                  <div><label className="block text-xs font-bold text-slate-500 uppercase mb-1">Ngân sách dự kiến</label><input type="number" className="w-full p-3 border rounded-xl outline-none focus:ring-2 focus:ring-orange-400" value={newAdForm.budget} onChange={e => setNewAdForm({...newAdForm, budget: e.target.value})}/></div>
+                                  <div><label className="block text-xs font-bold text-slate-500 uppercase mb-1">Định dạng</label><select className="w-full p-3 border rounded-xl outline-none focus:ring-2 focus:ring-orange-400 bg-white" value={newAdForm.format} onChange={e => setNewAdForm({...newAdForm, format: e.target.value})}>{config.formats.map(f => <option key={f} value={f}>{f}</option>)}</select></div>
                               </div>
-                              <button onClick={handleCreateNew} className="w-full py-3 bg-orange-600 hover:bg-orange-700 text-white font-bold rounded-xl shadow-lg shadow-orange-200 transition-all mt-4">
-                                  Tạo Quảng Cáo
-                              </button>
+                              <button onClick={handleCreateNew} className="w-full py-3 bg-orange-600 hover:bg-orange-700 text-white font-bold rounded-xl shadow-lg shadow-orange-200 transition-all mt-4">Tạo Quảng Cáo</button>
                           </div>
                       )}
-
-                      {/* --- TAB 2: IMPORT TỪ LỊCH SỬ --- */}
                       {modalTab === 'import' && (
                           <div className="space-y-4">
-                              <div className="flex gap-2">
-                                  <div className="relative flex-1">
-                                      <Search className="absolute left-3 top-3 text-slate-400" size={16}/>
-                                      <input 
-                                        className="w-full pl-10 pr-4 py-2.5 rounded-lg border border-slate-200 text-sm outline-none focus:ring-2 focus:ring-blue-400"
-                                        placeholder="Tìm theo tên bài cũ..."
-                                        value={importSearch}
-                                        onChange={e => setImportSearch(e.target.value)}
-                                      />
-                                  </div>
-                              </div>
-
+                              <div className="flex gap-2"><div className="relative flex-1"><Search className="absolute left-3 top-3 text-slate-400" size={16}/><input className="w-full pl-10 pr-4 py-2.5 rounded-lg border border-slate-200 text-sm outline-none focus:ring-2 focus:ring-blue-400" placeholder="Tìm theo tên bài cũ..." value={importSearch} onChange={e => setImportSearch(e.target.value)}/></div></div>
                               <div className="bg-white rounded-lg border border-slate-200 overflow-hidden shadow-sm max-h-[400px] overflow-y-auto custom-scrollbar">
                                   <table className="w-full text-left text-sm">
                                       <thead className="bg-slate-50 text-slate-500 font-bold sticky top-0 z-10">
-                                          <tr>
-                                              <th className="p-3 w-10 text-center">
-                                                  <input 
-                                                    type="checkbox" 
-                                                    className="w-4 h-4 rounded cursor-pointer"
-                                                    onChange={() => {
-                                                        if (selectedImportIds.length === importDataList.length) setSelectedImportIds([]);
-                                                        else setSelectedImportIds(importDataList.map(i => i.id));
-                                                    }}
-                                                    checked={selectedImportIds.length > 0 && selectedImportIds.length === importDataList.length}
-                                                  />
-                                              </th>
-                                              <th className="p-3">Khóa cũ</th>
-                                              <th className="p-3">Tên bài</th>
-                                              <th className="p-3 text-center">Định dạng</th>
-                                              <th className="p-3 text-center">Hiệu quả cũ (ROAS)</th>
-                                              <th className="p-3 text-right">Giá Mess cũ</th>
-                                          </tr>
+                                          <tr><th className="p-3 w-10 text-center"><input type="checkbox" className="w-4 h-4 rounded cursor-pointer" onChange={() => { if (selectedImportIds.length === importDataList.length) setSelectedImportIds([]); else setSelectedImportIds(importDataList.map(i => i.id)); }} checked={selectedImportIds.length > 0 && selectedImportIds.length === importDataList.length}/></th><th className="p-3">Khóa cũ</th><th className="p-3">Tên bài</th><th className="p-3 text-center">Định dạng</th><th className="p-3 text-center">Hiệu quả cũ (ROAS)</th><th className="p-3 text-right">Giá Mess cũ</th></tr>
                                       </thead>
                                       <tbody className="divide-y divide-slate-100">
                                           {importDataList.map(item => (
-                                              <tr 
-                                                key={item.id} 
-                                                className={`hover:bg-blue-50 cursor-pointer transition-colors ${selectedImportIds.includes(item.id) ? 'bg-blue-50/60' : ''}`}
-                                                onClick={() => {
-                                                    if (selectedImportIds.includes(item.id)) setSelectedImportIds(selectedImportIds.filter(i => i !== item.id));
-                                                    else setSelectedImportIds([...selectedImportIds, item.id]);
-                                                }}
-                                              >
-                                                  <td className="p-3 text-center">
-                                                      <input 
-                                                        type="checkbox" 
-                                                        checked={selectedImportIds.includes(item.id)}
-                                                        onChange={() => {}} 
-                                                        className="w-4 h-4 rounded cursor-pointer pointer-events-none"
-                                                      />
-                                                  </td>
-                                                  <td className="p-3 text-slate-500 font-medium">{item.course}</td>
-                                                  <td className="p-3 font-bold text-slate-700">{item.name}</td>
-                                                  <td className="p-3 text-center text-xs bg-slate-100 rounded-full px-2 py-1 w-fit mx-auto">{item.format}</td>
-                                                  <td className={`p-3 text-center font-bold ${item.roas >= 2.5 ? 'text-green-600' : 'text-slate-400'}`}>
-                                                      {item.roas}x
-                                                  </td>
-                                                  <td className="p-3 text-right text-slate-500">{fmt(item.cpm)}</td>
+                                              <tr key={item.id} className={`hover:bg-blue-50 cursor-pointer transition-colors ${selectedImportIds.includes(item.id) ? 'bg-blue-50/60' : ''}`} onClick={() => { if (selectedImportIds.includes(item.id)) setSelectedImportIds(selectedImportIds.filter(i => i !== item.id)); else setSelectedImportIds([...selectedImportIds, item.id]); }}>
+                                                  <td className="p-3 text-center"><input type="checkbox" checked={selectedImportIds.includes(item.id)} onChange={() => {}} className="w-4 h-4 rounded cursor-pointer pointer-events-none"/></td>
+                                                  <td className="p-3 text-slate-500 font-medium">{item.course}</td><td className="p-3 font-bold text-slate-700">{item.name}</td><td className="p-3 text-center text-xs bg-slate-100 rounded-full px-2 py-1 w-fit mx-auto">{item.format}</td><td className={`p-3 text-center font-bold ${item.roas >= 2.5 ? 'text-green-600' : 'text-slate-400'}`}>{item.roas}x</td><td className="p-3 text-right text-slate-500">{fmt(item.cpm)}</td>
                                               </tr>
                                           ))}
-                                          {importDataList.length === 0 && (
-                                              <tr>
-                                                  <td colSpan="6" className="p-8 text-center text-slate-400 italic">Không tìm thấy bài quảng cáo nào.</td>
-                                              </tr>
-                                          )}
                                       </tbody>
                                   </table>
                               </div>
-                              
-                              <div className="flex justify-between items-center pt-2">
-                                  <span className="text-sm font-medium text-slate-600">Đã chọn: <b className="text-blue-600">{selectedImportIds.length}</b> bài</span>
-                                  <button 
-                                    onClick={handleExecuteImport}
-                                    disabled={selectedImportIds.length === 0}
-                                    className={`px-6 py-2.5 rounded-xl font-bold text-white shadow transition-all flex items-center gap-2 ${selectedImportIds.length === 0 ? 'bg-slate-300 cursor-not-allowed' : 'bg-blue-600 hover:bg-blue-700 hover:scale-105'}`}
-                                  >
-                                      <Copy size={16}/> Import vào {filterCourse}
-                                  </button>
-                              </div>
+                              <div className="flex justify-between items-center pt-2"><span className="text-sm font-medium text-slate-600">Đã chọn: <b className="text-blue-600">{selectedImportIds.length}</b> bài</span><button onClick={handleExecuteImport} disabled={selectedImportIds.length === 0} className={`px-6 py-2.5 rounded-xl font-bold text-white shadow transition-all flex items-center gap-2 ${selectedImportIds.length === 0 ? 'bg-slate-300 cursor-not-allowed' : 'bg-blue-600 hover:bg-blue-700 hover:scale-105'}`}><Copy size={16}/> Import vào {filterCourse}</button></div>
                           </div>
                       )}
-
                   </div>
               </div>
           </div>
       )}
-
     </div>
   );
 }
