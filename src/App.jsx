@@ -2,7 +2,7 @@ import React, { useState } from 'react';
 import { Routes, Route, Link, useLocation, Navigate } from 'react-router-dom';
 import { 
   LayoutDashboard, Megaphone, Users, CreditCard, Settings, 
-  LogOut, Menu, X, Bell, MessageSquare 
+  LogOut, Menu, X, Bell, MessageSquare, BookOpen // Thêm icon BookOpen
 } from 'lucide-react';
 
 // --- 1. IMPORT BỘ NÃO (AuthContext) ---
@@ -15,37 +15,58 @@ import AdsManager from './components/AdsManager';
 import SalaryManager from './components/SalaryManager';
 import SpendingManager from './components/SpendingManager';
 import SettingsManager from './components/SettingsManager';
-import LeadsManager from './components/LeadsManager'; // Trang quản lý khách
+import LeadsManager from './components/LeadsManager'; 
+import TrainingManager from './components/TrainingManager'; // <-- THÊM DÒNG NÀY
 
-// --- 3. COMPONENT BẢO VỆ (Ai không có vé thì đuổi về Login) ---
+// --- 3. COMPONENT BẢO VỆ ---
 const ProtectedRoute = ({ children }) => {
   const { currentUser } = useAuth();
-  // Nếu chưa đăng nhập -> Đá về trang Login ngay
   if (!currentUser) return <Navigate to="/login" />;
   return children;
 };
 
-// --- 4. GIAO DIỆN CHÍNH (Layout có Menu bên trái) ---
+// --- 4. GIAO DIỆN CHÍNH ---
 const MainLayout = () => {
   const [isSidebarOpen, setSidebarOpen] = useState(true);
   const location = useLocation();
-  const { logout, currentUser, userRole } = useAuth(); // Lấy Role từ bộ não về
+  
+  // Lấy thêm userPermissions để ẩn hiện menu
+  const { logout, currentUser, userRole, userPermissions } = useAuth(); 
 
-  // Menu: Ai cũng thấy, TRỪ mục Settings chỉ Admin mới thấy
+  // Check quyền xem các trang
+  const canViewLeads = userRole === 'ADMIN' || userRole === 'SALE_LEADER' || userPermissions?.leads?.view;
+  const canViewTraining = userRole === 'ADMIN' || userRole === 'SALE_LEADER' || userPermissions?.training?.view; // <-- QUYỀN ĐÀO TẠO
+  const canViewAds = userRole === 'ADMIN' || userPermissions?.ads?.view;
+  const canViewSalary = userRole === 'ADMIN' || userPermissions?.salary?.view;
+  const canViewSpending = userRole === 'ADMIN' || userPermissions?.spending?.view;
+
+  // Menu Động: Chỉ hiện những gì được phép xem
   const menuItems = [
     { path: '/', name: 'Tổng Quan (CRM)', icon: LayoutDashboard },
-    { path: '/leads', name: 'Data Khách Hàng', icon: MessageSquare }, // Menu mới
-    { path: '/ads', name: 'Quản Lý Ads', icon: Megaphone },
-    { path: '/salary', name: 'Lương Nhân Sự', icon: Users },
-    { path: '/spending', name: 'Sổ Chi Tiêu', icon: CreditCard },
-    // Logic ẩn hiện menu Settings:
+    
+    // Data Khách Hàng
+    ...(canViewLeads ? [{ path: '/leads', name: 'Data Khách Hàng', icon: MessageSquare }] : []),
+    
+    // Đào Tạo & Tài Liệu (MENU MỚI)
+    ...(canViewTraining ? [{ path: '/training', name: 'Đào Tạo & Tài Liệu', icon: BookOpen }] : []),
+
+    // Ads Manager
+    ...(canViewAds ? [{ path: '/ads', name: 'Quản Lý Ads', icon: Megaphone }] : []),
+    
+    // Lương Nhân Sự
+    ...(canViewSalary ? [{ path: '/salary', name: 'Lương Nhân Sự', icon: Users }] : []),
+    
+    // Sổ Chi Tiêu
+    ...(canViewSpending ? [{ path: '/spending', name: 'Sổ Chi Tiêu', icon: CreditCard }] : []),
+
+    // Cấu Hình (Admin only)
     ...(userRole === 'ADMIN' ? [{ path: '/settings', name: 'Cấu Hình Hệ Thống', icon: Settings }] : []),
   ];
 
   return (
     <div className="flex h-screen w-screen bg-[#f1f5f9] overflow-hidden">
       
-      {/* SIDEBAR (THANH MENU TRÁI) */}
+      {/* SIDEBAR */}
       <aside className={`${isSidebarOpen ? 'w-72' : 'w-20'} bg-[#1e293b] text-white flex flex-col shadow-2xl transition-all duration-300 z-50 h-full shrink-0`}>
         <div className="h-16 flex items-center justify-center border-b border-slate-700/50 relative shrink-0">
           {isSidebarOpen ? <div className="text-center animate-in fade-in"><h1 className="font-black text-2xl tracking-wider text-orange-500">MONG GROUP</h1></div> : <span className="font-black text-3xl text-orange-500">M</span>}
@@ -64,7 +85,7 @@ const MainLayout = () => {
           })}
         </nav>
 
-        {/* THÔNG TIN USER & NÚT LOGOUT */}
+        {/* THÔNG TIN USER */}
         <div className="p-4 border-t border-slate-700/50 bg-[#16202e] shrink-0">
           <div className={`flex items-center gap-3 ${isSidebarOpen ? '' : 'justify-center'}`}>
             <div className="w-10 h-10 rounded-full bg-blue-600 flex items-center justify-center text-white font-bold text-sm shrink-0 border border-white/20">
@@ -86,7 +107,7 @@ const MainLayout = () => {
         </div>
       </aside>
 
-      {/* KHUNG NỘI DUNG CHÍNH (BÊN PHẢI) */}
+      {/* MAIN CONTENT */}
       <div className="flex-1 flex flex-col h-full overflow-hidden relative w-full min-w-0">
         <header className="h-16 bg-white border-b border-slate-200 flex items-center justify-between px-6 shrink-0 w-full z-40">
            <div className="flex items-center gap-2 text-sm text-slate-500">
@@ -104,14 +125,11 @@ const MainLayout = () => {
               <Routes>
                 <Route path="/" element={<Dashboard />} />
                 <Route path="/leads" element={<LeadsManager />} />
+                <Route path="/training" element={<TrainingManager />} /> {/* <-- ROUTE MỚI */}
                 <Route path="/ads" element={<AdsManager />} />
                 <Route path="/salary" element={<SalaryManager />} />
                 <Route path="/spending" element={<SpendingManager />} />
-                
-                {/* Chỉ ADMIN mới vào được trang Cấu hình */}
                 <Route path="/settings" element={userRole === 'ADMIN' ? <SettingsManager /> : <Navigate to="/" />} />
-                
-                {/* Đường dẫn lạ thì về trang chủ */}
                 <Route path="*" element={<Navigate to="/" />} />
               </Routes>
            </div>
@@ -121,14 +139,12 @@ const MainLayout = () => {
   );
 };
 
-// --- APP COMPONENT CHÍNH ---
+// --- APP ROOT ---
 export default function App() {
   return (
     <AuthProvider>
       <Routes>
         <Route path="/login" element={<Login />} />
-        
-        {/* Tất cả các trang khác đều được bảo vệ bởi ProtectedRoute */}
         <Route path="/*" element={
           <ProtectedRoute>
             <MainLayout />

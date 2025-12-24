@@ -3,31 +3,42 @@ import { db } from '../firebase';
 import { ref, onValue, update, remove } from "firebase/database";
 import { useAuth } from '../contexts/AuthContext';
 import { 
-  Phone, User, Clock, Trash2, Search, Bell, 
-  RefreshCw, Filter, Calendar, BarChart3, 
-  ToggleLeft, ToggleRight, Layers, LayoutDashboard, ListFilter
+  Phone, User, Clock, Trash2, Search, 
+  RefreshCw, Calendar, BarChart3, 
+  ToggleLeft, ToggleRight, Layers, LayoutDashboard, Lock, Star
 } from 'lucide-react';
 
 export default function LeadsManager() {
-  // --- 1. KHỞI TẠO & AUTH ---
-  const { currentUser, userRole } = useAuth();
+  const { currentUser, userRole, userPermissions } = useAuth();
+  
+  // Xác định quyền hạn chi tiết
   const isAdmin = userRole === 'ADMIN';
+  const isSaleLeader = userRole === 'SALE_LEADER';
+  
+  // Quyền xem/sửa cơ bản
+  const canView = isAdmin || isSaleLeader || userPermissions?.leads?.view;
+  const canEdit = isAdmin || isSaleLeader || userPermissions?.leads?.edit;
+  
+  // Quyền gán số (Admin & Sale Leader được phép)
+  const canAssign = isAdmin || isSaleLeader;
 
   const [leads, setLeads] = useState([]);
   const [staffList, setStaffList] = useState([]);
   
-  // State cho bộ lọc
   const [searchTerm, setSearchTerm] = useState("");
   const [dateFilter, setDateFilter] = useState("all"); 
   const [saleFilter, setSaleFilter] = useState("ALL"); 
-  const [courseFilter, setCourseFilter] = useState("ALL"); // <--- MỚI: Lọc theo khóa
+  const [courseFilter, setCourseFilter] = useState("ALL");
   const [loading, setLoading] = useState(true);
 
-  // State cấu hình
   const [systemSettings, setSystemSettings] = useState({ autoAssign: false });
 
-  // --- 2. LẤY DỮ LIỆU ---
   useEffect(() => {
+    if (!canView) {
+        setLoading(false);
+        return;
+    }
+
     const leadsRef = ref(db, 'leads_data');
     const unsubLeads = onValue(leadsRef, (snapshot) => {
       const val = snapshot.val();
@@ -51,39 +62,48 @@ export default function LeadsManager() {
       setLoading(false);
     });
 
-    if (isAdmin) {
+    // Chỉ Admin hoặc Sale Leader mới cần lấy danh sách nhân viên để gán số
+    if (canAssign) {
       const settingsRef = ref(db, 'system_settings');
       onValue(settingsRef, (snapshot) => {
         const val = snapshot.val() || {};
         setSystemSettings({ autoAssign: val.autoAssign || false });
         if (val.users) {
             const users = Array.isArray(val.users) ? val.users : Object.values(val.users);
-            setStaffList(users.filter(u => u && u.role === 'SALE' && u.isActive));
+            // Lấy danh sách Sale & Sale Leader đang Active để chia số
+            setStaffList(users.filter(u => (u.role === 'SALE' || u.role === 'SALE_LEADER') && u.isActive));
         }
       });
     }
 
     return () => unsubLeads();
-  }, [isAdmin]);
+  }, [canAssign, canView]);
 
-  // --- 3. LOGIC LỌC DỮ LIỆU ---
+  // --- LOGIC LỌC DỮ LIỆU ---
   const filteredLeads = useMemo(() => {
     return leads.filter(l => {
-      // A. Lọc theo quyền
-      if (!isAdmin && l.saleId !== currentUser?.email) return false;
+      // 1. Phân quyền xem
+      if (!isAdmin && !isSaleLeader) { 
+          // Sale thường: Chỉ xem của mình + Khách chưa gán
+          if (l.saleId && l.saleId !== currentUser?.email) return false;
+          if (!l.saleId) return true; // Cho phép xem khách chưa gán để tự nhận (nếu muốn)
+      }
+      // (Admin & Sale Leader mặc định xem được hết)
 
-      // B. Lọc theo Sale (Admin)
-      if (isAdmin && saleFilter !== "ALL" && l.saleId !== saleFilter) return false;
+      // 2. Bộ lọc (Dành cho Admin & Sale Leader)
+      if (canAssign && saleFilter !== "ALL") {
+          if (l.saleId !== saleFilter) return false;
+      }
 
-      // C. Lọc theo KHÓA HỌC (MỚI)
+      // 3. Lọc Khóa học
       if (courseFilter !== "ALL" && l.course !== courseFilter) return false;
 
-      // D. Tìm kiếm
+      // 4. Tìm kiếm
       const term = searchTerm.toLowerCase();
       const matchSearch = l.name.toLowerCase().includes(term) || l.phone.includes(term);
       if (!matchSearch) return false;
 
-      // E. Lọc thời gian
+      // 5. Thời gian
       const leadDate = new Date(l.time);
       const today = new Date();
       const isSameDay = (d1, d2) => d1.getDate() === d2.getDate() && d1.getMonth() === d2.getMonth() && d1.getFullYear() === d2.getFullYear();
@@ -105,9 +125,8 @@ export default function LeadsManager() {
 
       return true;
     });
-  }, [leads, searchTerm, dateFilter, saleFilter, courseFilter, isAdmin, currentUser]); // Thêm courseFilter vào dependency
+  }, [leads, searchTerm, dateFilter, saleFilter, courseFilter, isAdmin, isSaleLeader, canAssign, currentUser]);
 
-  // --- 4. TÍNH TOÁN THỐNG KÊ ---
   const stats = useMemo(() => {
     const data = {
         total: filteredLeads.length,
@@ -115,14 +134,8 @@ export default function LeadsManager() {
         byCourse: {} 
     };
 
-    // Tính toán dựa trên danh sách leads GỐC (chưa bị lọc bởi courseFilter) 
-    // để hiển thị tổng quan các khóa khác nhau ngay cả khi đang chọn 1 khóa
-    const sourceLeads = leads.filter(l => {
-         if (!isAdmin && l.saleId !== currentUser?.email) return false;
-         return true;
-    });
-
-    sourceLeads.forEach(l => {
+    // Tính toán trên tập đã lọc
+    filteredLeads.forEach(l => {
         const s = l.status || "Mới";
         data.byStatus[s] = (data.byStatus[s] || 0) + 1;
 
@@ -131,9 +144,8 @@ export default function LeadsManager() {
     });
 
     return data;
-  }, [leads, filteredLeads, isAdmin, currentUser]);
+  }, [filteredLeads]);
 
-  // --- 5. ACTION HANDLERS ---
   const toggleAutoAssign = () => {
     const newVal = !systemSettings.autoAssign;
     update(ref(db, 'system_settings'), { autoAssign: newVal });
@@ -141,10 +153,8 @@ export default function LeadsManager() {
 
   const autoAssignLeads = () => {
     if (staffList.length === 0) return alert("Không có Sale nào online!");
-    // Chỉ chia những khách chưa có Sale VÀ thuộc khóa đang chọn (nếu đang lọc)
     let targetLeads = leads.filter(l => !l.saleId);
     
-    // Nếu đang chọn khóa cụ thể, chỉ chia số khóa đó thôi (Thông minh hơn)
     if (courseFilter !== "ALL") {
         targetLeads = targetLeads.filter(l => l.course === courseFilter);
     }
@@ -167,12 +177,22 @@ export default function LeadsManager() {
   };
 
   const handleUpdate = (id, field, value) => {
+    if (!canEdit) return; 
     update(ref(db, `leads_data/${id}`), { [field]: value });
   };
 
   const deleteLead = (id) => {
+    // Chỉ Admin được xóa (Sale Leader không được xóa để tránh rủi ro)
+    if (!isAdmin) return; 
     if (window.confirm("Xóa vĩnh viễn?")) remove(ref(db, `leads_data/${id}`));
   };
+
+  if (!canView) return (
+    <div className="flex flex-col items-center justify-center h-screen bg-slate-50 text-slate-400">
+      <Lock size={64} className="mb-4" />
+      <h2 className="text-xl font-bold">Bạn không có quyền truy cập Data.</h2>
+    </div>
+  );
 
   if (loading) return <div className="p-10 text-center animate-pulse text-slate-500">⏳ Đang tải Dashboard...</div>;
 
@@ -185,24 +205,30 @@ export default function LeadsManager() {
           <h1 className="text-2xl font-black text-slate-800 flex items-center gap-2">
             <LayoutDashboard className="text-blue-600"/> CRM DASHBOARD
           </h1>
-          <p className="text-xs text-slate-500 font-bold uppercase mt-1">
+          <p className="text-xs text-slate-500 font-bold uppercase mt-1 flex items-center gap-2">
              {isAdmin ? "Quản lý tổng" : `Sale: ${currentUser?.displayName || "Member"}`}
+             {isSaleLeader && <span className="bg-purple-100 text-purple-700 px-2 py-0.5 rounded-full flex items-center gap-1"><Star size={10}/> SALE LEADER</span>}
+             {!canEdit && <span className="text-red-500">(Chế độ chỉ xem)</span>}
           </p>
         </div>
 
-        {isAdmin && (
+        {/* NÚT ĐIỀU KHIỂN (Dành cho Admin & Sale Leader) */}
+        {canAssign && (
             <div className="flex flex-wrap items-center gap-3 bg-white p-2 rounded-xl border shadow-sm">
-                <button 
-                    onClick={toggleAutoAssign}
-                    className={`flex items-center gap-2 text-xs font-bold px-3 py-2 rounded-lg transition-all border ${
-                        systemSettings.autoAssign 
-                        ? "bg-green-50 text-green-700 border-green-200" 
-                        : "bg-slate-50 text-slate-500 border-slate-200"
-                    }`}
-                >
-                    {systemSettings.autoAssign ? <ToggleRight size={20} className="text-green-600"/> : <ToggleLeft size={20}/>}
-                    {systemSettings.autoAssign ? "AUTO: BẬT" : "AUTO: TẮT"}
-                </button>
+                {/* Chỉ Admin mới được bật/tắt Auto (Sale Leader chỉ chia tay) */}
+                {isAdmin && (
+                    <button 
+                        onClick={toggleAutoAssign}
+                        className={`flex items-center gap-2 text-xs font-bold px-3 py-2 rounded-lg transition-all border ${
+                            systemSettings.autoAssign 
+                            ? "bg-green-50 text-green-700 border-green-200" 
+                            : "bg-slate-50 text-slate-500 border-slate-200"
+                        }`}
+                    >
+                        {systemSettings.autoAssign ? <ToggleRight size={20} className="text-green-600"/> : <ToggleLeft size={20}/>}
+                        {systemSettings.autoAssign ? "AUTO: BẬT" : "AUTO: TẮT"}
+                    </button>
+                )}
                 
                 {!systemSettings.autoAssign && (
                     <button onClick={autoAssignLeads} className="bg-blue-600 hover:bg-blue-700 text-white text-xs font-bold px-3 py-2 rounded-lg flex items-center gap-1 shadow-md shadow-blue-200">
@@ -213,7 +239,7 @@ export default function LeadsManager() {
         )}
       </div>
 
-      {/* --- CÁC TAB KHÓA HỌC (MỚI) --- */}
+      {/* --- CÁC TAB KHÓA HỌC --- */}
       <div className="flex gap-2 mb-4 overflow-x-auto pb-2 scrollbar-hide">
         <button 
             onClick={() => setCourseFilter("ALL")}
@@ -261,7 +287,8 @@ export default function LeadsManager() {
             </select>
         </div>
 
-        {isAdmin && (
+        {/* Lọc Nhân Viên (Admin & Sale Leader đều được dùng) */}
+        {canAssign && (
             <div className="flex items-center gap-2 w-full md:w-auto border-l md:pl-4">
                 <User size={18} className="text-slate-400"/>
                 <select 
@@ -269,7 +296,7 @@ export default function LeadsManager() {
                     value={saleFilter}
                     onChange={(e) => setSaleFilter(e.target.value)}
                 >
-                    <option value="ALL">👥 Tất cả công ty</option>
+                    <option value="ALL">👥 Tất cả Team</option>
                     {staffList.map((s, idx) => (
                         <option key={idx} value={s.email}>👤 {s.name}</option>
                     ))}
@@ -301,10 +328,14 @@ export default function LeadsManager() {
                     {lead.course}
                   </span>
                </div>
+               
                <select 
                   value={lead.status || "Mới"} 
+                  disabled={!canEdit}
                   onChange={(e) => handleUpdate(lead.id, 'status', e.target.value)}
-                  className={`text-[10px] font-black px-2 py-1 rounded-full border outline-none cursor-pointer ${
+                  className={`text-[10px] font-black px-2 py-1 rounded-full border outline-none ${
+                      !canEdit ? "opacity-70 cursor-not-allowed" : "cursor-pointer"
+                  } ${
                       lead.status === "Đã chốt" ? "bg-green-100 text-green-700 border-green-200" : 
                       lead.status === "Hủy" ? "bg-red-50 text-red-500 border-red-100" :
                       "bg-slate-50 text-slate-700"
@@ -324,13 +355,15 @@ export default function LeadsManager() {
             </a>
 
             <textarea 
-                className="w-full bg-[#f8fafc] border rounded-lg p-2 text-xs h-16 resize-none outline-none focus:bg-white focus:ring-1 focus:ring-blue-200"
-                placeholder="Ghi chú..."
+                className={`w-full bg-[#f8fafc] border rounded-lg p-2 text-xs h-16 resize-none outline-none focus:bg-white focus:ring-1 focus:ring-blue-200 ${!canEdit ? 'cursor-not-allowed text-slate-500' : ''}`}
+                placeholder={canEdit ? "Ghi chú..." : "Không có quyền sửa ghi chú"}
+                readOnly={!canEdit}
                 value={lead.note || ""}
                 onChange={(e) => handleUpdate(lead.id, 'note', e.target.value)}
             />
 
-            {isAdmin && (
+            {/* PHẦN GÁN SỐ (Admin & Sale Leader đều thấy) */}
+            {canAssign && (
               <div className="mt-4 pt-4 border-t border-slate-100 flex gap-2">
                   <select 
                     className="flex-1 text-xs border rounded px-2 py-1 outline-none bg-white cursor-pointer hover:border-blue-400"
@@ -348,11 +381,16 @@ export default function LeadsManager() {
                       <option key={idx} value={s.email}>{s.name}</option>
                     ))}
                   </select>
-                  <button onClick={() => deleteLead(lead.id)} className="text-slate-300 hover:text-red-500"><Trash2 size={16}/></button>
+                  
+                  {/* Chỉ Admin mới có nút Xóa */}
+                  {isAdmin && (
+                    <button onClick={() => deleteLead(lead.id)} className="text-slate-300 hover:text-red-500"><Trash2 size={16}/></button>
+                  )}
               </div>
             )}
             
-            {!isAdmin && lead.saleName && (
+            {/* Nếu không phải Admin/Leader, chỉ hiện tên Sale */}
+            {!canAssign && lead.saleName && (
                <div className="mt-3 pt-3 border-t text-[10px] text-slate-400 font-bold flex gap-1">
                  <User size={10}/> Sale: {lead.saleName}
                </div>
