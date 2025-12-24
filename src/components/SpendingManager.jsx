@@ -19,6 +19,14 @@ export default function SpendingManager() {
   const canView = userRole === 'ADMIN' || userPermissions?.spending?.view;
   const canEdit = userRole === 'ADMIN' || userPermissions?.spending?.edit;
 
+  // --- MỚI: ĐỊNH NGHĨA LABEL TIẾNG VIỆT CHO DROPDOWN ---
+  const STATUS_OPTS = [
+      { value: "PENDING", label: "⏳ Chờ Duyệt" },
+      { value: "APPROVED", label: "🔵 Đã Duyệt" },
+      { value: "PAID", label: "💸 Đã Chi" },
+      { value: "REJECTED", label: "⚪ Từ Chối" }
+  ];
+
   // --- 1. CẤU HÌNH BAN ĐẦU ---
   const INITIAL_CONFIG = {
     categories: [
@@ -338,7 +346,25 @@ export default function SpendingManager() {
                                          <div className="space-y-4">
                                              <h4 className="text-xs font-bold text-slate-400 uppercase border-b pb-2 mb-2">Quy trình duyệt & Chi</h4>
                                              <div className="grid grid-cols-2 gap-4">
-                                                 <div><label className="block text-xs font-bold text-slate-500 mb-1">Trạng thái</label><select disabled={!canEdit} className="w-full p-2 border rounded-lg text-sm font-bold text-blue-600 bg-blue-50" value={item.status} onChange={(e) => handleStatusChange(item.id, e.target.value)}>{config.statuses?.map(s => <option key={s} value={s}>{s}</option>)}</select></div>
+                                                 
+                                                 {/* --- SỬA PHẦN NÀY: Dùng STATUS_OPTS để map label tiếng Việt --- */}
+                                                 <div>
+                                                     <label className="block text-xs font-bold text-slate-500 mb-1">Trạng thái</label>
+                                                     <select 
+                                                        disabled={!canEdit} 
+                                                        className="w-full p-2 border rounded-lg text-sm font-bold text-blue-600 bg-blue-50" 
+                                                        value={item.status} 
+                                                        onChange={(e) => handleStatusChange(item.id, e.target.value)}
+                                                     >
+                                                        {STATUS_OPTS.map(opt => (
+                                                            <option key={opt.value} value={opt.value}>
+                                                                {opt.label}
+                                                            </option>
+                                                        ))}
+                                                     </select>
+                                                 </div>
+                                                 {/* ------------------------------------------------------------- */}
+
                                                  <div><label className="block text-xs font-bold text-slate-500 mb-1">Người duyệt</label><select disabled={!canEdit} className="w-full p-2 border rounded-lg text-sm bg-white" value={item.approver} onChange={(e) => handleUpdate(item.id, 'approver', e.target.value)}><option value="">-- Chọn --</option>{config.approvers?.map(p => <option key={p} value={p}>{p}</option>)}</select></div>
                                              </div>
                                              
