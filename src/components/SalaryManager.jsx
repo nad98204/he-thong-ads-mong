@@ -1,111 +1,372 @@
 import React, { useState, useMemo, useEffect } from 'react';
 import { 
   Plus, Search, Settings, 
-  ChevronDown, ChevronUp, ChevronRight, 
-  Calendar, Undo, Redo, Trash2, X, CheckCircle, AlertCircle, Edit, DollarSign, Cloud, Lock
+  ChevronDown, ChevronRight, 
+  Trash2, CheckCircle, AlertCircle, Edit, 
+  Lock, Unlock, Calendar, XCircle, X, Users, LayoutList
 } from 'lucide-react';
 
 // --- IMPORT FIREBASE & AUTH ---
 import { db } from '../firebase';
-import { ref, set, onValue } from "firebase/database";
+import { ref, set, onValue, update } from "firebase/database";
 import { useAuth } from '../contexts/AuthContext';
 
+// --- UTILS ---
+const safeFmt = (val) => {
+    try {
+        if (val === null || val === undefined) return '0';
+        if (typeof val === 'object') return '0';
+        const num = Number(val);
+        if (isNaN(num)) return '0';
+        return new Intl.NumberFormat('vi-VN').format(num);
+    } catch (e) {
+        return '0';
+    }
+};
+
+// --- SETTINGS MANAGER (CONFIG MODAL) ---
+const ConfigModal = ({ show, onClose, kpiConfig, rolesList, onSaveKPI, onSaveRoles }) => {
+    // Separate Mode: Managing Roles vs Managing KPIs
+    const [mode, setMode] = useState('KPIS'); // 'KPIS' or 'ROLES'
+    const [activeRoleTab, setActiveRoleTab] = useState('SALE');
+    
+    // Local State for KPI Config
+    const [localKPIConfig, setLocalKPIConfig] = useState({});
+    const [newKPI, setNewKPI] = useState("");
+
+    // Local State for Role Management
+    const [localRoles, setLocalRoles] = useState([]);
+    const [newRoleInput, setNewRoleInput] = useState("");
+
+    // Initialize/Sync Data
+    useEffect(() => { 
+        if (show) {
+            // Defensive Copy for KPIs
+            setLocalKPIConfig(JSON.parse(JSON.stringify(kpiConfig || {})));
+            // Defensive Copy for Roles
+            setLocalRoles([...(rolesList || [])]);
+            
+            // Set default tab if current doesn't exist
+            if (rolesList && rolesList.length > 0 && !rolesList.includes(activeRoleTab)) {
+                setActiveRoleTab(rolesList[0]);
+            }
+        }
+    }, [show, kpiConfig, rolesList]);
+
+    // --- KPI LOGIC ---
+    const handleAddCourse = () => {
+        const val = prompt("Nhập tên khóa học (VD: K38):");
+        if (val) {
+            const currentRoleConfig = localKPIConfig.SALE || { courses: [] };
+            const currentCourses = currentRoleConfig.courses || [];
+            
+            if (!currentCourses.includes(val)) {
+                setLocalKPIConfig({ 
+                    ...localKPIConfig, 
+                    SALE: { ...currentRoleConfig, courses: [...currentCourses, val] } 
+                });
+            }
+        }
+    };
+
+    const handleAddCustomKPI = () => {
+        if (!newKPI.trim()) return;
+        const currentRoleConfig = localKPIConfig[activeRoleTab] || { customKPI: [] };
+        const currentKPIs = currentRoleConfig.customKPI || [];
+        
+        if (!currentKPIs.includes(newKPI.trim())) {
+            setLocalKPIConfig({ 
+                ...localKPIConfig, 
+                [activeRoleTab]: { ...currentRoleConfig, customKPI: [...currentKPIs, newKPI.trim()] } 
+            });
+        }
+        setNewKPI("");
+    };
+
+    const handleRemoveKPIItem = (type, item) => {
+        if (type === 'course') {
+            const currentRoleConfig = localKPIConfig.SALE || { courses: [] };
+            const currentCourses = currentRoleConfig.courses || [];
+            setLocalKPIConfig({ 
+                ...localKPIConfig, 
+                SALE: { ...currentRoleConfig, courses: currentCourses.filter(c => c !== item) } 
+            });
+        } else {
+            const currentRoleConfig = localKPIConfig[activeRoleTab] || { customKPI: [] };
+            const currentKPIs = currentRoleConfig.customKPI || [];
+            setLocalKPIConfig({ 
+                ...localKPIConfig, 
+                [activeRoleTab]: { ...currentRoleConfig, customKPI: currentKPIs.filter(k => k !== item) } 
+            });
+        }
+    };
+
+    // --- ROLE MANAGEMENT LOGIC ---
+    const handleAddRole = () => {
+        const val = newRoleInput.trim().toUpperCase();
+        if (!val) return;
+        if (localRoles.includes(val)) {
+            alert("Role này đã tồn tại!");
+            return;
+        }
+        const updatedRoles = [...localRoles, val];
+        setLocalRoles(updatedRoles);
+        setNewRoleInput("");
+    };
+
+    const handleDeleteRole = (roleToDelete) => {
+        if (roleToDelete === 'SALE') {
+            alert("Không thể xóa role SALE mặc định.");
+            return;
+        }
+        if (confirm(`Bạn có chắc muốn xóa phòng ban ${roleToDelete}?`)) {
+            setLocalRoles(localRoles.filter(r => r !== roleToDelete));
+        }
+    };
+
+    const handleSaveAll = () => {
+        onSaveKPI(localKPIConfig);
+        onSaveRoles(localRoles);
+        onClose();
+    };
+
+    if (!show) return null;
+
+    return (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 backdrop-blur-sm p-4 animate-in fade-in">
+            <div className="bg-white w-full max-w-2xl rounded-2xl shadow-2xl overflow-hidden flex flex-col max-h-[85vh]">
+                <div className="p-4 border-b bg-slate-900 text-white flex justify-between items-center">
+                    <h3 className="font-bold text-lg flex items-center gap-2"><Settings size={18}/> Cấu Hình Hệ Thống</h3>
+                    <button onClick={onClose}><X className="text-slate-400 hover:text-white"/></button>
+                </div>
+
+                {/* Main Navigation (Roles vs KPIs) */}
+                <div className="flex bg-slate-100 p-1 gap-1">
+                     <button onClick={() => setMode('KPIS')} className={`flex-1 py-2 text-sm font-bold rounded-lg flex items-center justify-center gap-2 transition-all ${mode === 'KPIS' ? 'bg-white shadow text-blue-700' : 'text-slate-500 hover:bg-slate-200'}`}>
+                        <LayoutList size={16}/> Cấu Hình KPI
+                     </button>
+                     <button onClick={() => setMode('ROLES')} className={`flex-1 py-2 text-sm font-bold rounded-lg flex items-center justify-center gap-2 transition-all ${mode === 'ROLES' ? 'bg-white shadow text-purple-700' : 'text-slate-500 hover:bg-slate-200'}`}>
+                        <Users size={16}/> Quản Lý Phòng Ban
+                     </button>
+                </div>
+                
+                <div className="flex-1 overflow-y-auto p-6">
+                    {mode === 'ROLES' ? (
+                        // --- ROLE EDITOR UI ---
+                        <div className="space-y-6">
+                            <div className="bg-purple-50 p-4 rounded-xl border border-purple-100">
+                                <label className="block text-xs font-bold text-purple-800 mb-2 uppercase">Thêm Phòng Ban Mới</label>
+                                <div className="flex gap-2">
+                                    <input 
+                                        value={newRoleInput}
+                                        onChange={(e) => setNewRoleInput(e.target.value)}
+                                        placeholder="VD: MEDIA, HR, DESIGN..."
+                                        className="flex-1 border border-purple-200 rounded-lg px-4 py-2 text-sm outline-none focus:ring-2 focus:ring-purple-500"
+                                    />
+                                    <button onClick={handleAddRole} className="bg-purple-600 text-white px-4 py-2 rounded-lg font-bold text-sm hover:bg-purple-700">Thêm</button>
+                                </div>
+                            </div>
+                            
+                            <div>
+                                <label className="block text-xs font-bold text-slate-500 mb-3 uppercase">Danh sách hiện tại</label>
+                                <div className="grid grid-cols-2 gap-3">
+                                    {(localRoles || []).map(role => (
+                                        <div key={role} className="flex items-center justify-between p-3 bg-white border rounded-xl shadow-sm hover:border-blue-300 transition-all">
+                                            <span className="font-bold text-slate-700 text-sm">{role}</span>
+                                            {role !== 'SALE' && (
+                                                <button onClick={() => handleDeleteRole(role)} className="text-slate-300 hover:text-red-500 p-1">
+                                                    <Trash2 size={16}/>
+                                                </button>
+                                            )}
+                                        </div>
+                                    ))}
+                                </div>
+                            </div>
+                        </div>
+                    ) : (
+                        // --- KPI EDITOR UI ---
+                        <>
+                            {/* Role Tabs */}
+                            <div className="flex border-b overflow-x-auto no-scrollbar mb-4">
+                                {(localRoles || []).map(role => (
+                                    <button key={role} onClick={() => setActiveRoleTab(role)} className={`px-4 py-2 text-xs font-bold transition-all whitespace-nowrap ${activeRoleTab === role ? 'border-b-2 border-blue-500 text-blue-600' : 'text-slate-500 hover:text-slate-800'}`}>
+                                        {role}
+                                    </button>
+                                ))}
+                            </div>
+
+                            {activeRoleTab === 'SALE' ? (
+                                <div>
+                                    <label className="block text-xs font-bold text-slate-500 mb-2 uppercase">Danh sách Khóa (Tính Hoa Hồng)</label>
+                                    <div className="flex flex-wrap gap-2 mb-3">
+                                        {((localKPIConfig.SALE?.courses) || []).map(c => (
+                                            <span key={c} className="bg-blue-50 text-blue-700 px-3 py-1.5 rounded-lg text-xs font-bold border border-blue-100 flex items-center gap-2">
+                                                {c} <button onClick={() => handleRemoveKPIItem('course', c)} className="hover:text-red-500 text-blue-400"><X size={12}/></button>
+                                            </span>
+                                        ))}
+                                        <button onClick={handleAddCourse} className="bg-white text-slate-500 px-3 py-1.5 rounded-lg text-xs font-bold border border-dashed border-slate-300 hover:bg-slate-50 hover:border-blue-400 hover:text-blue-600 transition-all">+ Thêm</button>
+                                    </div>
+                                </div>
+                            ) : (
+                                <div>
+                                    <label className="block text-xs font-bold text-slate-500 mb-2 uppercase">KPI Tùy Chỉnh cho {activeRoleTab}</label>
+                                    <div className="flex gap-2 mb-4">
+                                        <input className="flex-1 border rounded-xl px-4 py-2 text-sm outline-none focus:ring-2 focus:ring-blue-500" placeholder="VD: Views, Leads..." value={newKPI} onChange={e => setNewKPI(e.target.value)} onKeyDown={e => e.key === 'Enter' && handleAddCustomKPI()} />
+                                        <button onClick={handleAddCustomKPI} className="bg-blue-600 text-white px-4 py-2 rounded-xl text-xs font-bold hover:bg-blue-700">Thêm</button>
+                                    </div>
+                                    <div className="flex flex-wrap gap-2">
+                                        {((localKPIConfig[activeRoleTab]?.customKPI) || []).map(k => (
+                                            <span key={k} className="bg-purple-50 text-purple-700 px-3 py-1.5 rounded-lg text-xs font-bold border border-purple-100 flex items-center gap-2">
+                                                {k} <button onClick={() => handleRemoveKPIItem('kpi', k)} className="hover:text-red-500 text-purple-400"><X size={12}/></button>
+                                            </span>
+                                        ))}
+                                        {(localKPIConfig[activeRoleTab]?.customKPI || []).length === 0 && <span className="text-xs text-slate-400 italic">Chưa có KPI nào.</span>}
+                                    </div>
+                                </div>
+                            )}
+                        </>
+                    )}
+                </div>
+
+                <div className="p-4 border-t bg-slate-50 flex justify-end">
+                    <button onClick={handleSaveAll} className="bg-slate-900 text-white px-6 py-2.5 rounded-xl font-bold text-sm shadow-lg hover:bg-slate-800 transition-all">Lưu Cấu Hình</button>
+                </div>
+            </div>
+        </div>
+    );
+};
+
+// --- MAIN COMPONENT ---
 export default function SalaryManager() {
-  // --- 0. PHÂN QUYỀN ---
   const { userPermissions, userRole } = useAuth();
   
-  // Kiểm tra quyền an toàn
   const canView = userRole === 'ADMIN' || userPermissions?.salary?.view;
-  const canEdit = userRole === 'ADMIN' || userPermissions?.salary?.edit;
+  const baseCanEdit = userRole === 'ADMIN' || userPermissions?.salary?.edit; 
 
-  // --- 1. CẤU HÌNH ---
-  const COURSE_PRICE = 3500000; 
+  const [loading, setLoading] = useState(true);
+  const [data, setData] = useState([]);
   
-  const INITIAL_CONFIG = {
-    roles: ["Sale", "Marketing", "Content", "Dev", "Admin"],
-    months: ["Tháng 12/2025", "Tháng 01/2026"],
-    courses: ["K36", "K37"] 
-  };
-
-  // --- 2. STATE ---
-  const [history, setHistory] = useState([{ data: [], config: INITIAL_CONFIG }]);
-  const [historyIndex, setHistoryIndex] = useState(0);
+  // Dynamic Configuration State
+  const [roleKPIConfig, setRoleKPIConfig] = useState({}); // Stores KPI details per role
+  const [dynamicRoles, setDynamicRoles] = useState(['SALE', 'MARKETING', 'ADMIN']); // Stores list of role names
   
-  const currentState = history[historyIndex] || { data: [], config: INITIAL_CONFIG };
-  const data = Array.isArray(currentState.data) ? currentState.data : [];
-  const config = currentState.config || INITIAL_CONFIG;
+  const [globalPrice, setGlobalPrice] = useState(3500000);
+  const [lockedMonths, setLockedMonths] = useState({});
+  
+  const currentYear = new Date().getFullYear();
+  const currentMonth = new Date().getMonth() + 1;
+  const [selectedYear, setSelectedYear] = useState(currentYear);
+  const [selectedMonth, setSelectedMonth] = useState(currentMonth);
+  const [activeRoleTab, setActiveRoleTab] = useState('ALL'); 
 
-  const [filterMonth, setFilterMonth] = useState("Tháng 12/2025");
   const [searchQuery, setSearchQuery] = useState("");
   const [expandedRow, setExpandedRow] = useState(null);
-  const [sortConfig, setSortConfig] = useState({ key: null, direction: 'asc' });
   const [showConfigModal, setShowConfigModal] = useState(false);
+  
+  const currentFilterKey = `Tháng ${String(selectedMonth).padStart(2, '0')}/${selectedYear}`;
+  const isMonthLocked = lockedMonths?.[currentFilterKey] === true;
+  const canEdit = baseCanEdit && !isMonthLocked;
 
-  const fmt = (num) => new Intl.NumberFormat('vi-VN').format(num || 0);
-
-  // --- 3. KẾT NỐI FIREBASE ---
+  // --- DATA LOADING (DEFENSIVE) ---
   useEffect(() => {
-    const dataRef = ref(db, 'salary_manager');
-    const unsubscribe = onValue(dataRef, (snapshot) => {
-      const cloudData = snapshot.val();
-      if (cloudData) {
-        const safeData = Array.isArray(cloudData.data) ? cloudData.data : [];
-        const safeConfig = cloudData.config || INITIAL_CONFIG;
-        setHistory([{ data: safeData, config: safeConfig }]);
-        setHistoryIndex(0);
-      }
+    let loadedCount = 0;
+    const totalSources = 5; // Config Roles, Config KPIs, Data, Price, Locks
+    const checkLoading = () => {
+        loadedCount++;
+        if (loadedCount >= totalSources) setLoading(false);
+    };
+
+    // 1. Fetch Dynamic Roles List
+    onValue(ref(db, 'salary_manager/config/roles'), (snap) => {
+        const val = snap.val();
+        if (val && Array.isArray(val)) {
+            setDynamicRoles(val);
+        } else {
+            // Default fallback if DB is empty
+            setDynamicRoles(['SALE', 'MARKETING', 'ADMIN']); 
+        }
+        checkLoading();
     });
-    return () => unsubscribe();
+
+    // 2. Fetch KPI Configurations
+    onValue(ref(db, 'salary_manager/role_config'), (snap) => {
+        if(snap.val()) setRoleKPIConfig(snap.val());
+        else setRoleKPIConfig({});
+        checkLoading();
+    });
+    
+    // 3. Global Settings
+    onValue(ref(db, 'system_settings/global/coursePrice'), (snap) => {
+        setGlobalPrice(Number(snap.val()) || 3500000);
+        checkLoading();
+    });
+
+    // 4. Employee Data
+    onValue(ref(db, 'salary_manager/data'), (snap) => {
+        const val = snap.val();
+        if (!val) setData([]);
+        else if (Array.isArray(val)) setData(val);
+        else setData(Object.values(val)); 
+        checkLoading();
+    });
+
+    // 5. Locks
+    onValue(ref(db, 'salary_manager/locked_months'), (snap) => {
+        setLockedMonths(snap.val() || {});
+        checkLoading();
+    });
   }, []);
 
-  const saveToCloud = (newData, newConfig) => {
-    if (!canEdit) return; // Chặn ghi nếu không có quyền
-    set(ref(db, 'salary_manager'), { data: newData, config: newConfig }).catch(console.error);
-  };
-
-  const pushToHistory = (newData, newConfig) => {
-    if (!canEdit) return;
-    const nextData = newData || data;
-    const nextConfig = newConfig || config;
-    const nextState = { data: nextData, config: nextConfig };
-    const newHistory = history.slice(0, historyIndex + 1);
-    newHistory.push(nextState);
-    setHistory(newHistory);
-    setHistoryIndex(newHistory.length - 1);
-    saveToCloud(nextData, nextConfig);
+  const syncDataToFirebase = (newData) => { 
+      if (canEdit) set(ref(db, 'salary_manager/data'), newData).catch(console.error); 
   };
   
-  const undo = () => { if (canEdit && historyIndex > 0) setHistoryIndex(historyIndex - 1); };
-  const redo = () => { if (canEdit && historyIndex < history.length - 1) setHistoryIndex(historyIndex + 1); };
+  // Save KPI Configuration
+  const saveKPIConfig = (newConfig) => {
+      set(ref(db, 'salary_manager/role_config'), newConfig);
+  };
 
-  // --- 4. LOGIC TÍNH TOÁN ---
-  const calculateRow = (item, currentConfig = config) => {
-    const safeItem = item || {};
-    const workDays = Number(safeItem.workDays) || 0;
-    const standardDays = Number(safeItem.standardDays) || 26;
-    const baseSalary = Number(safeItem.baseSalary) || 0;
+  // Save Role List Configuration
+  const saveRoleList = (newRoleList) => {
+      set(ref(db, 'salary_manager/config/roles'), newRoleList);
+      setDynamicRoles(newRoleList); // Optimistic update
+  };
+
+  // --- CALCULATION LOGIC ---
+  const calculateRow = (item) => {
+    if (!item) return {};
+    const workDays = Number(item.workDays) || 0;
+    const standardDays = Number(item.standardDays) || 26;
+    const baseSalary = Number(item.baseSalary) || 0;
     const realBase = standardDays > 0 ? (baseSalary / standardDays) * workDays : 0;
     
     let totalKpi = 0;
-    if (currentConfig && Array.isArray(currentConfig.courses)) {
-        currentConfig.courses.forEach(k => {
-          const details = (safeItem.kpiDetails && safeItem.kpiDetails[k]) ? safeItem.kpiDetails[k] : { orders: 0, percent: 0 };
-          const revenue = (Number(details.orders) || 0) * COURSE_PRICE; 
-          const commission = revenue * ((Number(details.percent) || 0) / 100); 
-          totalKpi += commission;
+    // Defensive access to role
+    const roleKey = item.role ? item.role.toUpperCase() : 'SALE';
+    const config = roleKPIConfig?.[roleKey] || {};
+
+    if (roleKey === 'SALE' || roleKey === 'SALE_LEADER') {
+        // Special logic for SALE (Commission based on Course Price)
+        (config.courses || []).forEach(k => {
+            const details = item.kpiDetails?.[k];
+            const safeDetails = (details && typeof details === 'object') ? details : { orders: 0, percent: 0 };
+            const revenue = (Number(safeDetails.orders) || 0) * globalPrice; 
+            const commission = revenue * ((Number(safeDetails.percent) || 0) / 100); 
+            totalKpi += commission;
+        });
+    } else {
+        // General logic for all other roles (Dynamic Custom KPIs)
+        (config.customKPI || []).forEach(k => {
+            const raw = item.kpiDetails?.[k];
+            const val = (raw && typeof raw !== 'object') ? Number(raw) : 0;
+            totalKpi += val || 0;
         });
     }
 
-    const total = realBase + totalKpi + (Number(safeItem.bonus) || 0) + (Number(safeItem.allowance) || 0);
-    const final = total - (Number(safeItem.fine) || 0) - (Number(safeItem.advance) || 0);
+    const total = realBase + totalKpi + (Number(item.bonus) || 0) + (Number(item.allowance) || 0);
+    const final = total - (Number(item.fine) || 0) - (Number(item.advance) || 0);
 
-    return { 
-      ...safeItem, 
-      realSalary: Math.round(realBase), 
-      totalKpi: Math.round(totalKpi),
-      totalIncome: Math.round(total), 
-      finalPayment: Math.round(final) 
-    };
+    return { ...item, realSalary: Math.round(realBase), totalKpi: Math.round(totalKpi), finalPayment: Math.round(final) };
   };
 
   const handleUpdate = (id, field, value) => {
@@ -113,199 +374,237 @@ export default function SalaryManager() {
     let rawValue = value;
     const numericFields = ['workDays', 'standardDays', 'baseSalary', 'bonus', 'allowance', 'advance', 'fine'];
     if (numericFields.includes(field)) rawValue = parseInt(value.toString().replace(/\D/g, '')) || 0;
-
-    const updatedData = data.map(item => item.id === id ? calculateRow({ ...item, [field]: rawValue }) : item);
-    pushToHistory(updatedData, null);
+    const updatedData = (data || []).map(item => item.id === id ? calculateRow({ ...item, [field]: rawValue }) : item);
+    syncDataToFirebase(updatedData);
   };
 
   const handleKpiUpdate = (id, k, field, value) => {
     if (!canEdit) return;
     const rawValue = parseInt(value.toString().replace(/\D/g, '')) || 0;
-    const updatedData = data.map(item => {
+    const updatedData = (data || []).map(item => {
       if (item.id === id) {
-        const currentDetails = (item.kpiDetails && item.kpiDetails[k]) ? item.kpiDetails[k] : { orders: 0, percent: 0 };
-        const newDetails = { ...(item.kpiDetails || {}), [k]: { ...currentDetails, [field]: rawValue } };
+        let newDetails = { ...(item.kpiDetails || {}) };
+        const roleKey = item.role ? item.role.toUpperCase() : 'SALE';
+
+        if (roleKey === 'SALE' || roleKey === 'SALE_LEADER') {
+            const current = (newDetails[k] && typeof newDetails[k] === 'object') ? newDetails[k] : { orders: 0, percent: 0 };
+            newDetails[k] = { ...current, [field]: rawValue };
+        } else {
+            newDetails[k] = rawValue;
+        }
         return calculateRow({ ...item, kpiDetails: newDetails });
       }
       return item;
     });
-    pushToHistory(updatedData, null);
+    syncDataToFirebase(updatedData);
   };
 
   const handleAddEmployee = () => {
     if (!canEdit) return;
-    const newId = `NV${Math.floor(Math.random() * 10000) + 100}`;
+    // Default to the currently selected tab, or SALE if 'ALL' is selected
+    const defaultRole = activeRoleTab === 'ALL' ? 'SALE' : activeRoleTab;
     const newItem = calculateRow({
-      id: newId, month: filterMonth, name: "Nhân viên mới...", role: "Sale",
+      id: `NV${Date.now()}`, month: currentFilterKey, name: "Nhân viên mới...", role: defaultRole,
       workDays: 26, standardDays: 26, baseSalary: 5000000, kpiDetails: {}, 
       bonus: 0, allowance: 0, advance: 0, fine: 0, status: "PENDING", note: ""
     });
-    pushToHistory([newItem, ...data], null);
+    const safeData = Array.isArray(data) ? data : [];
+    syncDataToFirebase([newItem, ...safeData]);
   };
 
-  const handleDelete = (id) => { 
-    if (!canEdit) return;
-    if(confirm("Xóa nhân sự này?")) pushToHistory(data.filter(i => i.id !== id), null); 
-  };
+  const handleDelete = (id) => { if (canEdit && confirm("Xóa nhân sự này?")) syncDataToFirebase(data.filter(i => i.id !== id)); };
   
   const handleStatusToggle = (id) => {
     if (!canEdit) return;
-    const updatedData = data.map(item => item.id === id ? { ...item, status: item.status === "PAID" ? "PENDING" : "PAID" } : item);
-    pushToHistory(updatedData, null);
+    const updatedData = (data || []).map(item => item.id === id ? { ...item, status: item.status === "PAID" ? "PENDING" : "PAID" } : item);
+    syncDataToFirebase(updatedData);
   };
 
-  // --- RENDER ---
+  const toggleLockMonth = async () => {
+      if (userRole !== 'ADMIN') return;
+      const newStatus = !isMonthLocked;
+      await update(ref(db, 'salary_manager/locked_months'), { [currentFilterKey]: newStatus });
+  };
+
+  // --- RENDER PREP ---
   const processedData = useMemo(() => {
-    let result = data.filter(item => item.month === filterMonth);
+    if (!Array.isArray(data)) return [];
+    let result = data.filter(item => item.month === currentFilterKey);
+    
+    // Defensive Filter Logic
+    if (activeRoleTab !== 'ALL') {
+        if (activeRoleTab === 'SALE') {
+            // Include both SALE and SALE_LEADER if tab is SALE
+            result = result.filter(i => {
+                const r = i.role ? i.role.toUpperCase() : '';
+                return r === 'SALE' || r === 'SALE_LEADER';
+            });
+        } else {
+            result = result.filter(i => i.role?.toUpperCase() === activeRoleTab);
+        }
+    }
+    
     if (searchQuery) result = result.filter(item => item.name?.toLowerCase().includes(searchQuery.toLowerCase()));
-    result = result.map(item => calculateRow(item, config));
-    return result;
-  }, [data, filterMonth, searchQuery, config]);
+    return result.map(item => calculateRow(item));
+  }, [data, currentFilterKey, searchQuery, roleKPIConfig, activeRoleTab, globalPrice]);
 
-  const summary = useMemo(() => {
-    return processedData.reduce((acc, item) => ({
-      base: acc.base + (item.realSalary || 0),
-      kpi: acc.kpi + (item.totalKpi || 0),
-      bonus: acc.bonus + (item.bonus || 0) + (item.allowance || 0),
-      deduct: acc.deduct + (item.fine || 0) + (item.advance || 0),
-      final: acc.final + (item.finalPayment || 0)
-    }), { base: 0, kpi: 0, bonus: 0, deduct: 0, final: 0 });
-  }, [processedData]);
+  if (!canView) return <div className="p-10 text-center text-slate-400 font-bold">Bạn không có quyền xem bảng lương.</div>;
+  
+  // Loading State to prevent White Screen
+  if (loading) return (
+      <div className="flex flex-col items-center justify-center h-screen text-slate-400 gap-3">
+          <div className="w-8 h-8 border-4 border-blue-500 border-t-transparent rounded-full animate-spin"></div>
+          <p className="text-sm font-bold">Đang tải dữ liệu...</p>
+      </div>
+  );
 
-  // CHẶN QUYỀN XEM
-  if (!canView) return (
-    <div className="flex flex-col items-center justify-center h-screen bg-slate-50">
-      <Lock size={64} className="text-slate-200 mb-4" />
-      <h2 className="text-xl font-bold text-slate-400 text-center px-10">Bạn không có quyền xem bảng lương nhân sự.</h2>
-    </div>
+  // Determine Columns for current view
+  const currentKPICols = activeRoleTab === 'ALL' ? [] : (
+      (activeRoleTab === 'SALE' || activeRoleTab === 'SALE_LEADER')
+        ? (roleKPIConfig?.SALE?.courses || []).map(c => ({ key: c, type: 'SALE' })) 
+        : (roleKPIConfig?.[activeRoleTab]?.customKPI || []).map(k => ({ key: k, type: 'OTHER' }))
   );
 
   return (
-    <div className="min-h-screen w-full bg-[#f8fafc] p-6 font-sans overflow-x-hidden">
-      {/* HEADER */}
-      <div className="flex justify-between items-center mb-6">
+    <div className="min-h-screen w-full bg-[#f8fafc] p-6 font-sans overflow-x-hidden animate-in fade-in duration-500">
+      <ConfigModal 
+        show={showConfigModal} 
+        onClose={() => setShowConfigModal(false)} 
+        kpiConfig={roleKPIConfig} 
+        rolesList={dynamicRoles}
+        onSaveKPI={saveKPIConfig}
+        onSaveRoles={saveRoleList}
+      />
+
+      <div className="flex flex-col xl:flex-row justify-between items-start xl:items-center mb-6 gap-4">
          <div className="flex items-center gap-4">
             <h1 className="text-xl font-black text-slate-800 flex items-center gap-2">
-               <span className="text-blue-600">SALARY MANAGER</span>
-               {!canEdit && <span className="text-[10px] bg-blue-50 text-blue-500 px-2 py-1 rounded border border-blue-100 flex items-center gap-1 ml-2"><Lock size={10}/> CHẾ ĐỘ XEM</span>}
+               <span className="text-purple-700">QUẢN LÝ LƯƠNG</span>
+               {isMonthLocked && <span className="text-[10px] bg-red-100 text-red-600 px-2 py-1 rounded border border-red-200 flex items-center gap-1"><Lock size={10}/> ĐÃ CHỐT SỔ</span>}
             </h1>
-            {canEdit && (
-                <div className="flex items-center bg-white border border-slate-200 rounded-lg p-1 shadow-sm">
-                    <button onClick={undo} disabled={historyIndex === 0} className={`p-1.5 rounded ${historyIndex === 0 ? 'text-slate-300' : 'text-slate-700 hover:bg-slate-100'}`}><Undo size={16}/></button>
-                    <div className="w-px h-4 bg-slate-200 mx-1"></div>
-                    <button onClick={redo} disabled={historyIndex === history.length - 1} className={`p-1.5 rounded ${historyIndex === history.length - 1 ? 'text-slate-300' : 'text-slate-700 hover:bg-slate-100'}`}><Redo size={16}/></button>
-                </div>
+         </div>
+         <div className="flex flex-wrap items-center gap-3">
+            <div className="bg-white border border-slate-200 rounded-xl px-3 py-2 shadow-sm flex items-center gap-2">
+                <Calendar size={14} className="text-slate-400"/>
+                <select className="bg-transparent text-sm font-bold text-slate-700 outline-none cursor-pointer" value={selectedYear} onChange={(e) => setSelectedYear(e.target.value)}>{[2024, 2025, 2026].map(y => <option key={y} value={y}>{y}</option>)}</select>
+            </div>
+            <div className="bg-white border border-slate-200 rounded-xl px-3 py-2 shadow-sm flex items-center gap-2">
+                <span className="text-xs font-bold text-slate-400">THÁNG</span>
+                <select className="bg-transparent text-sm font-bold text-blue-600 outline-none cursor-pointer" value={selectedMonth} onChange={(e) => setSelectedMonth(e.target.value)}>{[...Array(12)].map((_, i) => <option key={i+1} value={i+1}>{i+1}</option>)}</select>
+            </div>
+            {userRole === 'ADMIN' && (
+                <>
+                    <button onClick={() => setShowConfigModal(true)} className="p-2 bg-white border border-slate-200 rounded-xl text-slate-500 hover:bg-slate-50"><Settings size={18}/></button>
+                    <button onClick={toggleLockMonth} className={`px-4 py-2 rounded-xl text-xs font-bold flex items-center gap-2 shadow-md transition-all ${isMonthLocked ? 'bg-red-50 text-red-600 border border-red-200 hover:bg-red-100' : 'bg-green-50 text-green-600 border border-green-200 hover:bg-green-100'}`}>{isMonthLocked ? <><Lock size={14}/> MỞ KHÓA</> : <><Unlock size={14}/> CHỐT LƯƠNG</>}</button>
+                </>
             )}
          </div>
-         <div className="flex items-center gap-3">
-            <div className="text-xs font-bold text-orange-600 bg-orange-50 px-3 py-1.5 rounded border border-orange-200 uppercase tracking-tighter">Giá Khóa: {fmt(COURSE_PRICE)}</div>
-            <div className="relative group">
-               <div className="flex items-center gap-2 bg-white border border-slate-200 px-3 py-2 rounded-lg shadow-sm cursor-pointer hover:bg-slate-50">
-                  <Calendar size={16} className="text-slate-500"/><span className="text-sm font-bold text-slate-700">{filterMonth}</span><ChevronDown size={14} className="text-slate-400"/>
-               </div>
-               <div className="absolute top-full right-0 mt-2 w-48 bg-white border border-slate-200 rounded-lg shadow-xl hidden group-hover:block z-20 overflow-hidden">
-                  {config.months.map(m => (<div key={m} onClick={() => setFilterMonth(m)} className={`px-4 py-2 text-sm hover:bg-blue-50 cursor-pointer ${filterMonth === m ? 'font-bold text-blue-600' : 'text-slate-600'}`}>{m}</div>))}
-               </div>
+      </div>
+
+      <div className="mb-4 space-y-4">
+          {/* DYNAMIC TABS RENDER */}
+          <div className="flex gap-2 overflow-x-auto pb-2 no-scrollbar">
+              <button 
+                  onClick={() => setActiveRoleTab('ALL')} 
+                  className={`px-4 py-2 rounded-xl text-xs font-bold transition-all whitespace-nowrap ${activeRoleTab === 'ALL' ? 'bg-slate-800 text-white shadow-md' : 'bg-white text-slate-500 border border-slate-200 hover:bg-slate-50'}`}
+              >
+                  Tất Cả
+              </button>
+              {(dynamicRoles || []).map(role => (
+                  <button key={role} onClick={() => setActiveRoleTab(role)} className={`px-4 py-2 rounded-xl text-xs font-bold transition-all whitespace-nowrap ${activeRoleTab === role ? 'bg-slate-800 text-white shadow-md' : 'bg-white text-slate-500 border border-slate-200 hover:bg-slate-50'}`}>{role}</button>
+              ))}
+          </div>
+
+          <div className="flex gap-2">
+            <div className="relative flex-1">
+                <input value={searchQuery} onChange={(e) => setSearchQuery(e.target.value)} className="w-full pl-9 pr-4 py-2.5 rounded-xl border border-slate-200 text-sm focus:ring-2 focus:ring-purple-500 outline-none shadow-sm" placeholder="Tìm tên nhân sự..."/>
+                <Search className="absolute left-3 top-3 text-slate-400" size={16}/>
             </div>
-            {canEdit && <button onClick={() => setShowConfigModal(true)} className="p-2 bg-white border border-slate-200 rounded-lg text-slate-500 hover:bg-slate-50 transition-colors"><Settings size={20}/></button>}
-         </div>
+            <button onClick={handleAddEmployee} disabled={!canEdit} className={`bg-purple-600 text-white px-4 py-2.5 rounded-xl font-bold shadow flex items-center gap-2 text-sm transition-all ${!canEdit ? 'opacity-50 grayscale cursor-not-allowed' : 'hover:bg-purple-700 hover:shadow-lg'}`}><Plus size={18}/> Thêm Nhân Sự</button>
+          </div>
       </div>
 
-      {/* TOOLBAR */}
-      <div className="flex gap-2 mb-4">
-         <div className="relative flex-1">
-            <input value={searchQuery} onChange={(e) => setSearchQuery(e.target.value)} className="w-full pl-9 pr-4 py-2.5 rounded-xl border border-slate-200 text-sm focus:ring-2 focus:ring-blue-500 outline-none shadow-sm" placeholder="Tìm tên nhân sự..."/>
-            <Search className="absolute left-3 top-3 text-slate-400" size={16}/>
-         </div>
-         <button onClick={handleAddEmployee} disabled={!canEdit} className={`bg-blue-600 text-white px-4 py-2.5 rounded-xl font-bold shadow flex items-center gap-2 text-sm transition-all ${!canEdit ? 'opacity-50 grayscale cursor-not-allowed' : 'hover:bg-blue-700 hover:shadow-lg'}`}>
-            <Plus size={18}/> Thêm Nhân Sự
-         </button>
-      </div>
-
-      {/* TABLE */}
       <div className="bg-white rounded-xl shadow-sm border border-slate-300 overflow-hidden w-full">
          <div className="overflow-x-auto w-full">
             <table className="min-w-max w-full text-left border-collapse text-xs whitespace-nowrap">
                <thead className="bg-slate-800 text-white uppercase text-[10px] font-bold">
                   <tr>
-                     <th className="p-3 w-8"></th>
+                     <th className="p-3 w-8">#</th>
                      <th colSpan="3" className="p-3 border-r border-slate-600 text-center bg-slate-900">THÔNG TIN</th>
                      <th colSpan="3" className="p-3 border-r border-slate-600 text-center bg-blue-900">LƯƠNG CỨNG</th>
-                     {config.courses.map(k => (<th key={k} className="p-3 border-r border-slate-600 text-center bg-purple-900 min-w-[120px]">{k} <span className="opacity-50 font-normal block text-[9px]">(Đơn | %)</span></th>))}
-                     <th colSpan="3" className="p-3 border-r border-slate-600 text-center bg-orange-900">PHỤ CẤP & PHẠT</th>
+                     {/* Dynamic KPI Columns */}
+                     {currentKPICols.map(col => (
+                         <th key={col.key} className="p-3 border-r border-slate-600 text-center bg-purple-900 min-w-[140px]">
+                             {col.key} {col.type === 'SALE' && <span className="opacity-50 font-normal block text-[8px] mt-0.5">(Giá: {safeFmt(globalPrice)})</span>}
+                         </th>
+                     ))}
+                     <th colSpan="2" className="p-3 border-r border-slate-600 text-center bg-sky-700">THU NHẬP THÊM</th>
+                     <th colSpan="2" className="p-3 border-r border-slate-600 text-center bg-orange-800">KHẤU TRỪ</th>
                      <th colSpan="3" className="p-3 text-center bg-green-900">THỰC LĨNH</th>
                   </tr>
                </thead>
-
-               {/* TOTAL SUMMARY */}
-               <tbody className="bg-yellow-50 font-bold text-slate-800 border-b-2 border-yellow-200">
-                  <tr>
-                     <td colSpan="4" className="p-3 text-right uppercase text-[10px]">📊 TỔNG CHI:</td>
-                     <td className="p-3 text-right text-slate-500">{fmt(summary.base)}</td>
-                     <td colSpan="2" className="p-3"></td>
-                     {config.courses.map(k => {
-                        const totalK = processedData.reduce((sum, item) => {
-                           const details = (item.kpiDetails && item.kpiDetails[k]) ? item.kpiDetails[k] : { orders: 0, percent: 0 };
-                           return sum + ((Number(details.orders) || 0) * COURSE_PRICE * (Number(details.percent) || 0) / 100);
-                        }, 0);
-                        return <td key={k} className="p-3 text-right text-purple-700">{fmt(totalK)}</td>
-                     })}
-                     <td className="p-3 text-right text-orange-700">{fmt(summary.bonus)}</td>
-                     <td className="p-3 text-right text-red-600">-{fmt(summary.deduct)}</td>
-                     <td className="p-3"></td>
-                     <td className="p-3 text-right text-xl text-green-700">{fmt(summary.final)}</td>
-                     <td colSpan="2"></td>
-                  </tr>
-               </tbody>
-
                <tbody className="divide-y divide-slate-200 bg-white">
-                  {processedData.map((item) => (
-                     <React.Fragment key={item.id}>
-                        <tr className={`hover:bg-blue-50/30 transition-colors ${expandedRow === item.id ? 'bg-blue-50/50' : ''}`}>
-                           <td className="p-3 text-center cursor-pointer" onClick={() => setExpandedRow(expandedRow === item.id ? null : item.id)}>{expandedRow === item.id ? <ChevronDown size={14} className="text-slate-400"/> : <ChevronRight size={14} className="text-slate-300"/>}</td>
-                           <td className="p-3"><input readOnly={!canEdit} className="w-full bg-transparent outline-none font-bold text-slate-700" value={item.name} onChange={(e) => handleUpdate(item.id, 'name', e.target.value)}/></td>
-                           <td className="p-3"><select disabled={!canEdit} className="bg-transparent outline-none cursor-pointer text-[11px]" value={item.role} onChange={(e) => handleUpdate(item.id, 'role', e.target.value)}>{config.roles.map(r => <option key={r} value={r}>{r}</option>)}</select></td>
-                           <td className="p-3 text-center border-r border-slate-200"><input readOnly={!canEdit} className="w-8 text-center bg-transparent outline-none font-bold text-blue-600" value={item.workDays} onChange={(e) => handleUpdate(item.id, 'workDays', e.target.value)}/></td>
-                           <td className="p-3 text-right font-medium text-blue-800 bg-blue-50/10"><input readOnly={!canEdit} className="w-20 text-right bg-transparent outline-none" value={fmt(item.baseSalary)} onChange={(e) => handleUpdate(item.id, 'baseSalary', e.target.value)}/></td>
-                           <td className="p-3 text-center text-blue-800 bg-blue-50/10"><input readOnly={!canEdit} className="w-8 text-center bg-transparent outline-none text-slate-400" value={item.standardDays} onChange={(e) => handleUpdate(item.id, 'standardDays', e.target.value)}/></td>
-                           <td className="p-3 text-right text-blue-600 bg-blue-50/10 border-r border-blue-100 font-bold italic">{fmt(item.realSalary)}</td>
+                  {processedData.length === 0 ? (
+                      <tr><td colSpan="100%" className="p-8 text-center text-slate-400 italic">Không có dữ liệu cho bộ lọc này.</td></tr>
+                  ) : (
+                      processedData.map((item) => {
+                         const isPaid = item.status === "PAID";
+                         return (
+                            <React.Fragment key={item.id}>
+                                <tr className={`transition-colors ${isPaid ? 'bg-green-50/60' : 'hover:bg-blue-50/30'} ${expandedRow === item.id ? 'bg-blue-50/50' : ''}`}>
+                                <td className="p-3 text-center cursor-pointer" onClick={() => setExpandedRow(expandedRow === item.id ? null : item.id)}>{expandedRow === item.id ? <ChevronDown size={14} className="text-slate-400"/> : <ChevronRight size={14} className="text-slate-300"/>}</td>
+                                <td className="p-3"><input readOnly={!canEdit} className={`w-full bg-transparent outline-none font-bold ${isPaid ? 'text-green-800' : 'text-slate-700'}`} value={item.name} onChange={(e) => handleUpdate(item.id, 'name', e.target.value)}/></td>
+                                <td className="p-3"><input readOnly={!canEdit} className="w-20 bg-transparent outline-none text-[11px]" value={item.role} onChange={(e) => handleUpdate(item.id, 'role', e.target.value)} /></td>
+                                
+                                <td className="p-3 text-center border-r border-slate-200"><input readOnly={!canEdit} className="w-8 text-center bg-transparent outline-none font-bold text-blue-600" value={item.workDays} onChange={(e) => handleUpdate(item.id, 'workDays', e.target.value)}/></td>
+                                <td className="p-3 text-right font-medium text-blue-800 bg-blue-50/10"><input readOnly={!canEdit} className="w-20 text-right bg-transparent outline-none" value={safeFmt(item.baseSalary)} onChange={(e) => handleUpdate(item.id, 'baseSalary', e.target.value)}/></td>
+                                <td className="p-3 text-center text-blue-800 bg-blue-50/10"><input readOnly={!canEdit} className="w-8 text-center bg-transparent outline-none text-slate-400" value={item.standardDays} onChange={(e) => handleUpdate(item.id, 'standardDays', e.target.value)}/></td>
+                                <td className="p-3 text-right text-blue-600 bg-blue-50/10 border-r border-blue-100 font-bold italic">{safeFmt(item.realSalary)}</td>
 
-                           {config.courses.map(k => {
-                              const details = (item.kpiDetails && item.kpiDetails[k]) ? item.kpiDetails[k] : { orders: 0, percent: 0 };
-                              const kpiMoney = (Number(details.orders) || 0) * COURSE_PRICE * ((Number(details.percent) || 0) / 100);
-                              return (
-                                 <td key={k} className="p-2 border-r border-purple-100 bg-purple-50/10">
-                                    <div className="flex flex-col gap-1">
-                                       <div className="flex items-center justify-end gap-1">
-                                          <input readOnly={!canEdit} className="w-8 text-right font-bold text-slate-700 bg-white border border-slate-100 rounded px-1" value={details.orders || ''} onChange={(e) => handleKpiUpdate(item.id, k, 'orders', e.target.value)}/>
-                                          <span className="text-[9px] text-slate-400">Đơn</span>
-                                       </div>
-                                       <div className="flex items-center justify-end gap-1">
-                                          <input readOnly={!canEdit} className="w-8 text-right font-bold text-purple-600 bg-white border border-purple-100 rounded px-1" value={details.percent || ''} onChange={(e) => handleKpiUpdate(item.id, k, 'percent', e.target.value)}/>
-                                          <span className="text-[9px] text-purple-400">%</span>
-                                       </div>
-                                       <div className="text-right text-[10px] font-bold text-green-600 pt-1 border-t border-purple-100">
-                                          {fmt(kpiMoney)}
-                                       </div>
-                                    </div>
-                                 </td>
-                              );
-                           })}
+                                {currentKPICols.map(col => {
+                                    if (col.type === 'SALE') {
+                                        const details = (item.kpiDetails && typeof item.kpiDetails[col.key] === 'object') ? item.kpiDetails[col.key] : { orders: 0, percent: 0 };
+                                        const revenueGenerated = (Number(details.orders) || 0) * globalPrice;
+                                        const commission = revenueGenerated * ((Number(details.percent) || 0) / 100);
+                                        return (
+                                            <td key={col.key} className="p-2 border-r border-purple-100 bg-purple-50/10">
+                                                <div className="flex flex-col gap-1">
+                                                    <div className="flex items-center justify-end gap-1"><input readOnly={!canEdit} className="w-8 text-right font-bold text-slate-700 bg-white border border-slate-100 rounded px-1" value={details.orders || ''} onChange={(e) => handleKpiUpdate(item.id, col.key, 'orders', e.target.value)}/><span className="text-[9px] text-slate-400">Đơn</span></div>
+                                                    <div className="flex items-center justify-end gap-1"><input readOnly={!canEdit} className="w-8 text-right font-bold text-purple-600 bg-white border border-purple-100 rounded px-1" value={details.percent || ''} onChange={(e) => handleKpiUpdate(item.id, col.key, 'percent', e.target.value)}/><span className="text-[9px] text-purple-400">%</span></div>
+                                                    <div className="text-right text-[10px] font-bold text-green-600 pt-1 border-t border-purple-100/50">{safeFmt(commission)}</div>
+                                                </div>
+                                            </td>
+                                        );
+                                    } else {
+                                        const raw = item.kpiDetails?.[col.key];
+                                        const val = (raw && typeof raw !== 'object') ? raw : 0;
+                                        return (
+                                            <td key={col.key} className="p-2 border-r border-purple-100 bg-purple-50/10">
+                                                <div className="flex items-center justify-end gap-1">
+                                                    <input readOnly={!canEdit} className="w-24 text-right font-bold text-green-600 bg-white border border-slate-100 rounded px-2 py-1" value={safeFmt(val)} onChange={(e) => handleKpiUpdate(item.id, col.key, null, e.target.value.replace(/\D/g, ''))}/>
+                                                </div>
+                                            </td>
+                                        )
+                                    }
+                                })}
 
-                           <td className="p-3 text-right"><div className="flex flex-col"><input readOnly={!canEdit} className="w-20 text-right bg-transparent outline-none text-orange-600 font-bold" placeholder="Thưởng" value={fmt(item.bonus)} onChange={(e) => handleUpdate(item.id, 'bonus', e.target.value)}/><input readOnly={!canEdit} className="w-20 text-right bg-transparent outline-none text-[10px] text-slate-400" placeholder="Phụ cấp" value={fmt(item.allowance)} onChange={(e) => handleUpdate(item.id, 'allowance', e.target.value)}/></div></td>
-                           <td className="p-3 text-right"><input readOnly={!canEdit} className="w-20 text-right bg-transparent outline-none text-red-500 font-bold" value={fmt(item.advance)} onChange={(e) => handleUpdate(item.id, 'advance', e.target.value)}/></td>
-                           <td className="p-3 text-right border-r border-orange-100"><input readOnly={!canEdit} className="w-16 text-right bg-transparent outline-none text-red-400" value={fmt(item.fine)} onChange={(e) => handleUpdate(item.id, 'fine', e.target.value)}/></td>
-                           <td className="p-3 text-right font-black text-green-700 text-sm bg-green-50">{fmt(item.finalPayment)}</td>
-                           <td className="p-3 text-center bg-green-50"><div onClick={() => handleStatusToggle(item.id)} className={`px-2 py-1 rounded-full text-[10px] font-bold border flex items-center justify-center gap-1 transition-all ${canEdit ? 'cursor-pointer' : 'cursor-default'} ${item.status === "PAID" ? "bg-green-100 text-green-700 border-green-200" : "bg-yellow-100 text-yellow-700 border-yellow-200"}`}>{item.status === "PAID" ? <><CheckCircle size={10}/> XONG</> : <><AlertCircle size={10}/> CHƯA</>}</div></td>
-                           <td className="p-3 text-center bg-green-50"><button disabled={!canEdit} onClick={() => handleDelete(item.id)} className={`transition-colors ${canEdit ? 'text-slate-300 hover:text-red-500' : 'text-slate-100'}`}><Trash2 size={14}/></button></td>
-                        </tr>
-                        {expandedRow === item.id && (
-                           <tr className="bg-slate-50 border-b border-slate-200">
-                              <td colSpan={13 + config.courses.length} className="p-4"><div className="font-bold mb-1 text-xs text-slate-500 uppercase flex items-center gap-2"><Edit size={12}/> Ghi chú nhân sự</div><textarea readOnly={!canEdit} className="w-full h-20 p-2 text-sm border rounded bg-white resize-none focus:ring-2 focus:ring-blue-500 outline-none transition-all" placeholder="Nhập ghi chú chi tiết..." value={item.note} onChange={(e) => handleUpdate(item.id, 'note', e.target.value)}/></td>
-                           </tr>
-                        )}
-                     </React.Fragment>
-                  ))}
+                                <td className="p-3 text-right border-r border-slate-100 bg-sky-50/30"><div className="flex items-center justify-end gap-1"><span className="text-[9px] text-slate-400 uppercase">Thưởng</span><input readOnly={!canEdit} className="w-20 text-right bg-transparent outline-none text-green-600 font-bold hover:border-b border-green-200" value={safeFmt(item.bonus)} onChange={(e) => handleUpdate(item.id, 'bonus', e.target.value)}/></div></td>
+                                <td className="p-3 text-right border-r border-slate-200 bg-sky-50/30"><div className="flex items-center justify-end gap-1"><span className="text-[9px] text-slate-400 uppercase">P.Cấp</span><input readOnly={!canEdit} className="w-20 text-right bg-transparent outline-none text-green-600 font-bold hover:border-b border-green-200" value={safeFmt(item.allowance)} onChange={(e) => handleUpdate(item.id, 'allowance', e.target.value)}/></div></td>
+                                <td className="p-3 text-right border-r border-slate-100 bg-orange-50/30"><div className="flex items-center justify-end gap-1"><span className="text-[9px] text-slate-400 uppercase">Ứng</span><input readOnly={!canEdit} className="w-20 text-right bg-transparent outline-none text-red-500 font-bold hover:border-b border-red-200" value={safeFmt(item.advance)} onChange={(e) => handleUpdate(item.id, 'advance', e.target.value)}/></div></td>
+                                <td className="p-3 text-right border-r border-orange-100 bg-orange-50/30"><div className="flex items-center justify-end gap-1"><span className="text-[9px] text-slate-400 uppercase">Phạt</span><input readOnly={!canEdit} className="w-16 text-right bg-transparent outline-none text-red-500 font-bold hover:border-b border-red-200" value={safeFmt(item.fine)} onChange={(e) => handleUpdate(item.id, 'fine', e.target.value)}/></div></td>
+
+                                <td className={`p-3 text-right font-black text-sm border-l-2 border-white ${isPaid ? 'text-white bg-green-600' : 'text-green-700 bg-green-50'}`}>{safeFmt(item.finalPayment)}</td>
+                                <td className={`p-3 text-center ${isPaid ? 'bg-green-600' : 'bg-green-50'}`}><div onClick={() => handleStatusToggle(item.id)} className={`px-2 py-1 rounded-full text-[10px] font-bold border flex items-center justify-center gap-1 transition-all ${canEdit ? 'cursor-pointer' : 'cursor-default'} ${isPaid ? "bg-white text-green-700 border-white shadow-sm" : "bg-yellow-100 text-yellow-700 border-yellow-200"}`}>{isPaid ? <><CheckCircle size={10}/> XONG</> : <><AlertCircle size={10}/> CHƯA</>}</div></td>
+                                <td className="p-3 text-center bg-white"><button disabled={!canEdit} onClick={() => handleDelete(item.id)} className={`transition-colors ${canEdit ? 'text-slate-300 hover:text-red-500' : 'text-slate-100'}`}><Trash2 size={14}/></button></td>
+                                </tr>
+                                
+                                {expandedRow === item.id && (
+                                <tr className="bg-slate-50 border-b border-slate-200"><td colSpan={17 + currentKPICols.length} className="p-4"><div className="font-bold mb-1 text-xs text-slate-500 uppercase flex items-center gap-2"><Edit size={12}/> Ghi chú nhân sự</div><textarea readOnly={!canEdit} className="w-full h-20 p-2 text-sm border rounded bg-white resize-none focus:ring-2 focus:ring-blue-500 outline-none transition-all" placeholder="Nhập ghi chú chi tiết..." value={item.note} onChange={(e) => handleUpdate(item.id, 'note', e.target.value)}/></td></tr>
+                                )}
+                            </React.Fragment>
+                         );
+                      })
+                  )}
                </tbody>
             </table>
          </div>

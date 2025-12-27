@@ -2,14 +2,11 @@ import React, { useState, useMemo, useEffect, useRef } from 'react';
 import { 
   Plus, Search, X, 
   ChevronDown, ChevronRight, 
-  Link as LinkIcon, Trash2, 
-  BarChart3, Lock, PlayCircle, Image as ImageIcon,
-  Facebook, ExternalLink,
-  Copy, Edit3, CheckSquare,
-  ArrowUpDown, ArrowUp, ArrowDown // Icon mới cho tính năng Sort
+  Trash2, BarChart3, Lock, PlayCircle, Image as ImageIcon,
+  Facebook, ExternalLink, Copy, Edit3, 
+  ArrowUpDown, ArrowUp, ArrowDown, Database 
 } from 'lucide-react';
 
-// --- GIỮ NGUYÊN IMPORT GỐC CỦA BẠN ---
 import { db } from '../firebase';
 import { ref, set, onValue } from "firebase/database";
 import { useAuth } from '../contexts/AuthContext';
@@ -37,17 +34,30 @@ export default function AdsManager() {
   const data = currentState.data || [];
   const config = currentState.config || INITIAL_STATE.config;
 
-  // --- 2. KẾT NỐI FIREBASE (GIỮ NGUYÊN) ---
+  // --- STATE DỮ LIỆU CRM (REAL-TIME) ---
+  const [realCustomers, setRealCustomers] = useState([]);
+
+  // --- 2. KẾT NỐI FIREBASE ---
   useEffect(() => {
-    const dataRef = ref(db, 'ads_manager');
-    const unsubscribe = onValue(dataRef, (snapshot) => {
+    // A. Lấy dữ liệu Ads
+    const adsRef = ref(db, 'ads_manager');
+    const unsubAds = onValue(adsRef, (snapshot) => {
       const cloudData = snapshot.val();
       if (cloudData) {
         setHistory([{ data: cloudData.data || [], config: cloudData.config || INITIAL_STATE.config }]);
         setHistoryIndex(0);
       }
     });
-    return () => unsubscribe();
+
+    // B. Lấy dữ liệu Customers để tính Real ROAS
+    const custRef = ref(db, 'sales_crm/customers');
+    const unsubCust = onValue(custRef, (snapshot) => {
+      const val = snapshot.val();
+      const list = val ? Object.values(val) : [];
+      setRealCustomers(list);
+    });
+
+    return () => { unsubAds(); unsubCust(); };
   }, []);
 
   const saveToCloud = (newData, newConfig) => {
@@ -71,20 +81,16 @@ export default function AdsManager() {
   const [filterCourse, setFilterCourse] = useState("ALL");
   const [searchQuery, setSearchQuery] = useState("");
   const [expandedRow, setExpandedRow] = useState(null);
-
-  // --- STATE MỚI: SORTING ---
   const [sortConfig, setSortConfig] = useState({ key: 'date', direction: 'desc' });
 
-  // --- STATE MỚI CHO TÍNH NĂNG CONTEXT MENU & IMPORT ---
+  // --- STATE CHO CONTEXT MENU & IMPORT ---
   const [contextMenu, setContextMenu] = useState({ visible: false, x: 0, y: 0, course: null });
   const [isModalOpen, setIsModalOpen] = useState(false);
-  const [modalTab, setModalTab] = useState('new'); // 'new' | 'import'
+  const [modalTab, setModalTab] = useState('new');
   const [importSearch, setImportSearch] = useState("");
   const [selectedImportIds, setSelectedImportIds] = useState([]);
   
-  // Form tạo nhanh
   const [newAdForm, setNewAdForm] = useState({ name: "QC Mới", budget: 0, format: "Video" });
-
   const contextMenuRef = useRef(null);
   const fmt = (num) => new Intl.NumberFormat('vi-VN').format(num || 0);
 
@@ -109,7 +115,7 @@ export default function AdsManager() {
       return false;
   };
 
-  // --- LOGIC MỚI: QUẢN LÝ TAB (CONTEXT MENU) ---
+  // --- LOGIC CONTEXT MENU ---
   useEffect(() => {
     const handleClickOutside = (event) => {
         if (contextMenuRef.current && !contextMenuRef.current.contains(event.target)) {
@@ -157,7 +163,7 @@ export default function AdsManager() {
       setContextMenu({ ...contextMenu, visible: false });
   };
 
-  // --- LOGIC MỚI: IMPORT & CREATE MODAL ---
+  // --- LOGIC IMPORT & CREATE ---
   const openModal = () => {
       if (!canEdit) return;
       if (filterCourse === "ALL") {
@@ -172,7 +178,7 @@ export default function AdsManager() {
   };
 
   const handleCreateNew = () => {
-      const newId = `C${Math.floor(Math.random() * 10000)}`;
+      const newId = `C${Date.now()}`; // Sử dụng Date.now() để tránh trùng ID
       const today = new Date().toISOString().split('T')[0];
       const newItem = {
         id: newId, 
@@ -183,7 +189,8 @@ export default function AdsManager() {
         format: newAdForm.format, 
         link: "", media: "",
         budget: Number(newAdForm.budget), 
-        spend: 0, mess: 0, mong: 0, thanh: 0, price: 3500000, cost: 0,
+        spend: 0, 
+        mess: 0, mong: 0, thanh: 0, price: 3500000, cost: 0,
         action: "Chờ", status: "DRAFT", content: ""
       };
       pushToHistory([newItem, ...data], null);
@@ -192,45 +199,65 @@ export default function AdsManager() {
 
   const handleExecuteImport = () => {
       if (selectedImportIds.length === 0) return;
-      
       const today = new Date().toISOString().split('T')[0];
       const itemsToImport = data.filter(item => selectedImportIds.includes(item.id));
       
-      const newImportedItems = itemsToImport.map(item => ({
+      const newImportedItems = itemsToImport.map((item, index) => ({
           ...item,
-          id: `C${Math.floor(Math.random() * 10000000)}`,
+          id: `C${Date.now()}_${index}`, // ID duy nhất
           course: filterCourse,
           date: today,
-          spend: 0, mess: 0, mong: 0, thanh: 0, cost: 0,
+          spend: 0, cost: 0,
+          // Reset metrics về 0 khi import
+          mess: 0, orders: 0, rev: 0, profit: 0,
           action: "Chờ", status: "DRAFT", eval: "🆕 New", manualEval: null
       }));
-
       pushToHistory([...newImportedItems, ...data], null);
       setIsModalOpen(false);
   };
 
-  // --- LOGIC TÍNH TOÁN METRICS ---
+  // --- LOGIC TÍNH TOÁN METRICS (REAL-TIME) ---
   const calculateMetrics = (item) => {
-    const totalOrders = (Number(item.mong) || 0) + (Number(item.thanh) || 0);
-    const revenue = totalOrders * (Number(item.price) || 0);
-    const cpm = item.mess > 0 ? Math.round(item.spend / item.mess) : 0;
-    const rate = item.mess > 0 ? ((totalOrders / item.mess) * 100).toFixed(1) : 0;
-    const profit = revenue - (Number(item.spend) || 0) - (Number(item.cost) || 0);
-    const roas = item.spend > 0 ? (revenue / item.spend).toFixed(2) : 0;
+    // 1. Lọc khách hàng từ CRM thuộc bài QC này
+    const adCustomers = realCustomers.filter(c => c.sourceAdId === item.id);
+
+    // 2. Tính số liệu thực tế
+    const realMess = adCustomers.length;
+    const realRevenue = adCustomers.reduce((sum, c) => sum + (Number(c.paidAmount) || 0), 0);
+    const realOrders = adCustomers.filter(c => Number(c.paidAmount) > 0).length;
+
+    // 3. Lấy chi phí
+    const spend = Number(item.spend) || 0;
+    const cost = Number(item.cost) || 0;
+
+    // 4. Tính chỉ số hiệu quả
+    const cpm = realMess > 0 ? Math.round(spend / realMess) : 0;
+    const rate = realMess > 0 ? ((realOrders / realMess) * 100).toFixed(1) : 0;
+    const profit = realRevenue - spend - cost;
+    const roas = spend > 0 ? (realRevenue / spend).toFixed(2) : 0;
     
+    // 5. Đánh giá tự động
     let evaluation = item.eval || "🆕 New";
-    if (!item.manualEval && item.spend > 0) {
+    if (!item.manualEval && spend > 0) {
         if (roas >= 4) evaluation = "🌟 Tốt";
         else if (roas >= 2.5) evaluation = "✅ Ổn";
         else evaluation = "💸 Lỗ";
     }
-    return { ...item, orders: totalOrders, rev: revenue, cpm, rate, profit, roas, eval: item.manualEval || evaluation };
+
+    return { 
+        ...item, 
+        mess: realMess, 
+        orders: realOrders, 
+        rev: realRevenue, 
+        cpm, rate, profit, roas, 
+        eval: item.manualEval || evaluation 
+    };
   };
 
   const handleUpdate = (id, field, value) => {
     if (!canEdit) return;
     let rawValue = value;
-    const numericFields = ['budget', 'spend', 'mess', 'mong', 'thanh', 'price', 'cost'];
+    const numericFields = ['budget', 'spend', 'cost'];
     if (numericFields.includes(field)) rawValue = parseInt(value.toString().replace(/\D/g, '')) || 0;
 
     const updatedData = data.map(item => {
@@ -248,7 +275,6 @@ export default function AdsManager() {
     if(confirm("Xóa dòng này?")) pushToHistory(data.filter(i => i.id !== id), null); 
   };
 
-  // --- XỬ LÝ SẮP XẾP (SORTING) ---
   const handleSort = (key) => {
       let direction = 'desc';
       if (sortConfig.key === key && sortConfig.direction === 'desc') {
@@ -257,35 +283,27 @@ export default function AdsManager() {
       setSortConfig({ key, direction });
   };
 
+  // --- DATA PROCESSING ---
   const processedData = useMemo(() => {
-    // 1. Tính toán
     let result = data.map(calculateMetrics);
     
-    // 2. Lọc
     if (filterCourse !== "ALL") result = result.filter(item => item.course === filterCourse);
     if (searchQuery) result = result.filter(item => item.name?.toLowerCase().includes(searchQuery.toLowerCase()));
 
-    // 3. Sắp xếp (Sorting)
     if (sortConfig.key) {
         result.sort((a, b) => {
             let valA = a[sortConfig.key];
             let valB = b[sortConfig.key];
-
-            // Xử lý số và chuỗi
             if (typeof valA === 'string' && !isNaN(Date.parse(valA)) && sortConfig.key === 'date') {
-                 // Sort ngày tháng
                  valA = new Date(valA).getTime();
                  valB = new Date(valB).getTime();
             } else if (!isNaN(Number(valA)) && !isNaN(Number(valB))) {
-                 // Sort số
                  valA = Number(valA);
                  valB = Number(valB);
             } else {
-                 // Sort text thường
                  valA = valA ? valA.toString().toLowerCase() : '';
                  valB = valB ? valB.toString().toLowerCase() : '';
             }
-
             if (valA < valB) return sortConfig.direction === 'asc' ? -1 : 1;
             if (valA > valB) return sortConfig.direction === 'asc' ? 1 : -1;
             return 0;
@@ -293,26 +311,34 @@ export default function AdsManager() {
     }
 
     return result;
-  }, [data, filterCourse, searchQuery, sortConfig]);
+  }, [data, filterCourse, searchQuery, sortConfig, realCustomers]);
 
-  // --- TÍNH TOÁN HÀNG TỔNG (SUMMARY) ---
+  // --- [FIX] IMPORT LIST DATA ---
+  // Thêm realCustomers vào dependency để list import hiển thị đúng số liệu
+  const importDataList = useMemo(() => {
+      let result = data.map(calculateMetrics); // Tính toán lại metrics mới nhất
+      if (importSearch) {
+          result = result.filter(item => item.name?.toLowerCase().includes(importSearch.toLowerCase()));
+      }
+      // Sắp xếp theo hiệu quả (ROAS) giảm dần
+      return result.sort((a,b) => b.roas - a.roas);
+  }, [data, importSearch, realCustomers]); // <-- Đã thêm realCustomers
+
+  // --- SUMMARY ---
   const summary = useMemo(() => {
       if (processedData.length === 0) return null;
 
       const sum = processedData.reduce((acc, item) => {
           acc.budget += Number(item.budget) || 0;
           acc.spend += Number(item.spend) || 0;
-          acc.mess += Number(item.mess) || 0;
-          acc.mong += Number(item.mong) || 0;
-          acc.thanh += Number(item.thanh) || 0;
+          acc.mess += Number(item.mess) || 0; 
           acc.orders += Number(item.orders) || 0;
           acc.rev += Number(item.rev) || 0;
           acc.cost += Number(item.cost) || 0;
           acc.profit += Number(item.profit) || 0;
           return acc;
-      }, { budget: 0, spend: 0, mess: 0, mong: 0, thanh: 0, orders: 0, rev: 0, cost: 0, profit: 0 });
+      }, { budget: 0, spend: 0, mess: 0, orders: 0, rev: 0, cost: 0, profit: 0 });
 
-      // Tính lại các chỉ số trung bình (Recalculate)
       const avgCpm = sum.mess > 0 ? Math.round(sum.spend / sum.mess) : 0;
       const avgRate = sum.mess > 0 ? ((sum.orders / sum.mess) * 100).toFixed(1) : 0;
       const avgRoas = sum.spend > 0 ? (sum.rev / sum.spend).toFixed(2) : 0;
@@ -321,16 +347,7 @@ export default function AdsManager() {
       return { ...sum, avgCpm, avgRate, avgRoas, avgPrice };
   }, [processedData]);
 
-  // Data cho Import Tab
-  const importDataList = useMemo(() => {
-      let result = data.map(calculateMetrics);
-      if (importSearch) {
-          result = result.filter(item => item.name?.toLowerCase().includes(importSearch.toLowerCase()));
-      }
-      return result.sort((a,b) => b.roas - a.roas);
-  }, [data, importSearch]);
-
-  // Helper render Header có Sort Icon
+  // UI Components
   const SortableHeader = ({ label, sortKey, align = 'left', className = '' }) => (
       <th 
         className={`p-3 cursor-pointer hover:bg-slate-700 transition-colors select-none ${className}`}
@@ -407,13 +424,12 @@ export default function AdsManager() {
                      <th className="p-3 w-12 text-center sticky left-0 top-0 z-40 bg-slate-800 border-r border-slate-700">#</th>
                      <th colSpan="7" className="p-3 border-r border-slate-600 text-center bg-slate-900">THÔNG TIN</th>
                      <th colSpan="4" className="p-3 border-r border-slate-600 text-center bg-blue-900">QUẢNG CÁO</th>
-                     <th colSpan="9" className="p-3 border-r border-slate-600 text-center bg-green-900">KINH DOANH</th>
+                     <th colSpan="5" className="p-3 border-r border-slate-600 text-center bg-green-900">KINH DOANH (AUTO TỪ CRM)</th>
                      <th colSpan="4" className="p-3 text-center bg-orange-900">TRẠNG THÁI</th>
                   </tr>
                   <tr className="bg-slate-100 text-slate-600 border-b-2 border-slate-300">
                      <th className="p-3 sticky left-0 top-[40px] z-40 bg-slate-100 border-r border-slate-200"></th>
                      
-                     {/* UPDATE: Header có thể Sort */}
                      <SortableHeader label="Ngày" sortKey="date" className="w-28 sticky top-[40px] bg-slate-100 group/th"/>
                      <SortableHeader label="Khóa" sortKey="course" align="center" className="w-24 sticky top-[40px] bg-slate-100 group/th"/>
                      <SortableHeader label="Tên Bài" sortKey="name" className="min-w-[200px] sticky top-[40px] bg-slate-100 group/th"/>
@@ -425,17 +441,13 @@ export default function AdsManager() {
                      <SortableHeader label="Ngân sách" sortKey="budget" align="right" className="w-32 border-r border-slate-300 sticky top-[40px] bg-slate-100 group/th"/>
                      
                      <SortableHeader label="Tiền Tiêu" sortKey="spend" align="right" className="w-32 bg-blue-50 text-blue-800 sticky top-[40px] group/th"/>
-                     <SortableHeader label="Mess" sortKey="mess" align="center" className="w-20 bg-blue-50 text-blue-800 sticky top-[40px] group/th"/>
+                     <SortableHeader label="Mess (Auto)" sortKey="mess" align="center" className="w-20 bg-blue-50 text-blue-800 sticky top-[40px] group/th"/>
                      <SortableHeader label="Giá Mess" sortKey="cpm" align="right" className="w-28 bg-blue-50 text-blue-800 sticky top-[40px] group/th"/>
                      <SortableHeader label="Rate" sortKey="rate" align="center" className="w-20 bg-blue-50 text-blue-800 border-r border-blue-200 sticky top-[40px] group/th"/>
 
-                     <SortableHeader label="Mong 🔥" sortKey="mong" align="center" className="w-20 bg-green-50 sticky top-[40px] group/th"/>
-                     <SortableHeader label="Thành 💧" sortKey="thanh" align="center" className="w-20 bg-green-50 sticky top-[40px] group/th"/>
-                     <SortableHeader label="TỔNG" sortKey="orders" align="center" className="w-20 bg-green-50 sticky top-[40px] group/th"/>
-                     <SortableHeader label="% Chốt" sortKey="rate" align="center" className="w-20 bg-green-50 sticky top-[40px] group/th"/>
-                     
-                     <SortableHeader label="Giá Bán" sortKey="price" align="right" className="w-28 bg-green-50 sticky top-[40px] group/th"/>
-                     <SortableHeader label="DOANH THU" sortKey="rev" align="right" className="w-32 bg-green-50 text-green-800 font-bold sticky top-[40px] group/th"/>
+                     {/* CÁC CỘT TÍNH TOÁN REAL-TIME */}
+                     <SortableHeader label="TỔNG ĐƠN" sortKey="orders" align="center" className="w-20 bg-green-50 text-green-700 sticky top-[40px] group/th"/>
+                     <SortableHeader label="THỰC THU" sortKey="rev" align="right" className="w-32 bg-green-50 text-green-800 font-bold sticky top-[40px] group/th"/>
                      <SortableHeader label="Tiền Gốc" sortKey="cost" align="right" className="w-28 bg-green-50 sticky top-[40px] group/th"/>
                      <SortableHeader label="LỢI NHUẬN" sortKey="profit" align="right" className="w-32 bg-green-50 text-green-800 font-bold sticky top-[40px] group/th"/>
                      <SortableHeader label="ROAS" sortKey="roas" align="center" className="w-20 bg-green-50 text-purple-700 font-black border-r border-green-200 sticky top-[40px] group/th"/>
@@ -460,20 +472,26 @@ export default function AdsManager() {
                            <td className="p-3"><input readOnly={!canEdit} className="w-full bg-transparent outline-none text-slate-500" value={item.headline} onChange={(e) => handleUpdate(item.id, 'headline', e.target.value)}/></td>
                            <td className="p-3 text-center"><select disabled={!canEdit} className="bg-transparent outline-none cursor-pointer" value={item.format} onChange={(e) => handleUpdate(item.id, 'format', e.target.value)}>{config.formats.map(f => <option key={f} value={f}>{f}</option>)}</select></td>
                            <td className="p-3 text-center text-blue-600">{item.link ? (<a href={item.link} target="_blank" rel="noopener noreferrer" className="hover:text-orange-500"><Facebook size={14} className="mx-auto"/></a>) : (<span className="text-slate-300">-</span>)}</td>
+                           
                            <td className="p-3 text-right"><input readOnly={!canEdit} className="w-full text-right bg-transparent outline-none" value={fmt(item.budget)} onChange={(e) => handleUpdate(item.id, 'budget', e.target.value)}/></td>
                            <td className="p-3 text-right font-medium bg-blue-50/10 text-blue-800"><input readOnly={!canEdit} className="w-full text-right bg-transparent outline-none font-bold" value={fmt(item.spend)} onChange={(e) => handleUpdate(item.id, 'spend', e.target.value)}/></td>
-                           <td className="p-3 text-center font-bold bg-blue-50/10 text-blue-600"><input readOnly={!canEdit} className="w-full text-center bg-transparent outline-none" value={fmt(item.mess)} onChange={(e) => handleUpdate(item.id, 'mess', e.target.value)}/></td>
+                           
+                           {/* MESS (AUTO) - READONLY */}
+                           <td className="p-3 text-center font-bold bg-slate-100 text-slate-600 cursor-help" title="Số liệu tự động từ CRM">{fmt(item.mess)}</td>
+                           
                            <td className="p-3 text-right text-slate-500 bg-blue-50/10">{fmt(item.cpm)}</td>
                            <td className="p-3 text-center text-slate-500 border-r border-blue-100">{item.rate}%</td>
-                           <td className="p-3 text-center"><input readOnly={!canEdit} className="w-full text-center bg-transparent outline-none" value={item.mong} onChange={(e) => handleUpdate(item.id, 'mong', e.target.value)}/></td>
-                           <td className="p-3 text-center"><input readOnly={!canEdit} className="w-full text-center bg-transparent outline-none" value={item.thanh} onChange={(e) => handleUpdate(item.id, 'thanh', e.target.value)}/></td>
-                           <td className="p-3 text-center font-bold text-slate-400">{item.orders}</td>
-                           <td className="p-3 text-center font-bold text-green-600">{item.rate}%</td>
-                           <td className="p-3 text-right"><input readOnly={!canEdit} className="w-full text-right bg-transparent outline-none text-slate-600" value={fmt(item.price)} onChange={(e) => handleUpdate(item.id, 'price', e.target.value)}/></td>
-                           <td className="p-3 text-right font-bold text-green-700">{fmt(item.rev)}</td>
+
+                           {/* ĐƠN HÀNG (AUTO) - READONLY */}
+                           <td className="p-3 text-center font-bold text-slate-700 bg-green-50/30">{item.orders}</td>
+
+                           {/* THỰC THU (AUTO) - READONLY */}
+                           <td className="p-3 text-right font-bold text-green-700 bg-green-50/30">{fmt(item.rev)}</td>
+
                            <td className="p-3 text-right text-slate-400"><input readOnly={!canEdit} className="w-full text-right bg-transparent outline-none" value={fmt(item.cost)} onChange={(e) => handleUpdate(item.id, 'cost', e.target.value)}/></td>
                            <td className={`p-3 text-right font-bold ${item.profit > 0 ? 'text-green-600' : 'text-red-500'}`}>{fmt(item.profit)}</td>
                            <td className="p-3 text-center font-black border-r border-slate-200">{item.roas}x</td>
+                           
                            <td className="p-3 text-center"><select disabled={!canEdit} className="bg-transparent text-[10px] font-bold" value={item.eval} onChange={(e) => handleUpdate(item.id, 'eval', e.target.value)}>{config.evals.map(a => <option key={a} value={a}>{a}</option>)}</select></td>
                            <td className="p-3 text-center"><select disabled={!canEdit} className="bg-transparent text-[10px] font-bold text-orange-600" value={item.action} onChange={(e) => handleUpdate(item.id, 'action', e.target.value)}>{config.actions.map(a => <option key={a} value={a}>{a}</option>)}</select></td>
                            <td className="p-3 text-center"><div className={`w-8 h-4 rounded-full relative transition-colors ${canEdit ? 'cursor-pointer' : 'cursor-default'} ${item.status === 'ON' ? 'bg-green-500' : 'bg-slate-300'}`} onClick={() => canEdit && handleUpdate(item.id, 'status', item.status === 'ON' ? 'OFF' : 'ON')}><div className={`w-2 h-2 bg-white rounded-full absolute top-1 transition-all ${item.status === 'ON' ? 'left-5' : 'left-1'}`}></div></div></td>
@@ -484,6 +502,7 @@ export default function AdsManager() {
                            <tr className="bg-slate-50 border-b border-slate-200 animate-in fade-in slide-in-from-top-2">
                               <td className="sticky left-0 bg-slate-50 z-10 border-r border-slate-100"></td>
                               <td colSpan="25" className="p-6 bg-slate-50">
+                                 {/* (Phần Expanded Detail giữ nguyên như cũ) */}
                                  <div className="flex gap-6 items-start">
                                     <div className="shrink-0 flex flex-col gap-2">
                                        <div className="text-[10px] font-bold text-slate-400 uppercase flex items-center gap-1"><ImageIcon size={10}/> Preview (Mobile)</div>
@@ -517,29 +536,21 @@ export default function AdsManager() {
                   ))}
                </tbody>
 
-               {/* --- UPDATE: STICKY FOOTER TỔNG KẾT --- */}
+               {/* STICKY FOOTER TỔNG KẾT */}
                {summary && (
                    <tfoot className="sticky bottom-0 z-20 shadow-[0_-4px_6px_-1px_rgba(0,0,0,0.1)]">
                        <tr className="bg-yellow-100 text-slate-900 font-bold border-t-2 border-slate-400 text-xs">
                            <td className="p-3 text-center border-r border-slate-300 sticky left-0 bg-yellow-100">SUM</td>
-                           <td colSpan="6" className="p-3 text-right uppercase tracking-wider text-slate-500">Tổng Kết Chiến Dịch</td>
+                           <td colSpan="6" className="p-3 text-right uppercase tracking-wider text-slate-500">Tổng Kết</td>
                            
                            <td className="p-3 text-right">{fmt(summary.budget)}</td>
                            
-                           {/* Nhóm Tiền Tiêu */}
                            <td className="p-3 text-right text-blue-800">{fmt(summary.spend)}</td>
                            <td className="p-3 text-center text-blue-800">{fmt(summary.mess)}</td>
                            <td className="p-3 text-right text-blue-800">{fmt(summary.avgCpm)}</td>
                            <td className="p-3 text-center text-blue-800 border-r border-blue-300">{summary.avgRate}%</td>
 
-                           {/* Nhóm Đơn Hàng */}
-                           <td className="p-3 text-center">{summary.mong}</td>
-                           <td className="p-3 text-center">{summary.thanh}</td>
-                           <td className="p-3 text-center text-red-600 text-sm">{summary.orders}</td>
-                           <td className="p-3 text-center text-green-700">{summary.avgRate}%</td>
-
-                           {/* Nhóm Doanh Thu & Lợi Nhuận */}
-                           <td className="p-3 text-right">{fmt(summary.avgPrice)}</td>
+                           <td className="p-3 text-center text-green-700">{summary.orders}</td>
                            <td className="p-3 text-right text-green-800 text-sm">{fmt(summary.rev)}</td>
                            <td className="p-3 text-right text-slate-500">{fmt(summary.cost)}</td>
                            <td className={`p-3 text-right text-sm ${summary.profit > 0 ? 'text-green-700' : 'text-red-600'}`}>{fmt(summary.profit)}</td>
@@ -553,7 +564,6 @@ export default function AdsManager() {
          </div>
       </div>
 
-      {/* --- IMPORT MODAL (GIỮ NGUYÊN) --- */}
       {isModalOpen && (
           <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 backdrop-blur-sm p-4 animate-in fade-in duration-200">
               <div className="bg-white w-full max-w-4xl rounded-2xl shadow-2xl flex flex-col max-h-[90vh]">

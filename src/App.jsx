@@ -2,7 +2,7 @@ import React, { useState } from 'react';
 import { Routes, Route, Link, useLocation, Navigate } from 'react-router-dom';
 import { 
   LayoutDashboard, Megaphone, Users, CreditCard, Settings, 
-  LogOut, Menu, X, Bell, MessageSquare, BookOpen // Thêm icon BookOpen
+  LogOut, Menu, X, Bell, MessageSquare, BookOpen, Target // <-- Added Target icon
 } from 'lucide-react';
 
 // --- 1. IMPORT BỘ NÃO (AuthContext) ---
@@ -16,7 +16,8 @@ import SalaryManager from './components/SalaryManager';
 import SpendingManager from './components/SpendingManager';
 import SettingsManager from './components/SettingsManager';
 import LeadsManager from './components/LeadsManager'; 
-import TrainingManager from './components/TrainingManager'; // <-- THÊM DÒNG NÀY
+import TrainingManager from './components/TrainingManager';
+import SalesCRM from './components/SalesCRM'; // <-- THÊM DÒNG NÀY (SALES CRM)
 
 // --- 3. COMPONENT BẢO VỆ ---
 const ProtectedRoute = ({ children }) => {
@@ -35,7 +36,11 @@ const MainLayout = () => {
 
   // Check quyền xem các trang
   const canViewLeads = userRole === 'ADMIN' || userRole === 'SALE_LEADER' || userPermissions?.leads?.view;
-  const canViewTraining = userRole === 'ADMIN' || userRole === 'SALE_LEADER' || userPermissions?.training?.view; // <-- QUYỀN ĐÀO TẠO
+  
+  // Quyền xem Sales CRM (Mới)
+  const canViewSalesCRM = userRole === 'ADMIN' || userRole === 'SALE_LEADER' || userPermissions?.sales_crm?.view;
+
+  const canViewTraining = userRole === 'ADMIN' || userRole === 'SALE_LEADER' || userPermissions?.training?.view;
   const canViewAds = userRole === 'ADMIN' || userPermissions?.ads?.view;
   const canViewSalary = userRole === 'ADMIN' || userPermissions?.salary?.view;
   const canViewSpending = userRole === 'ADMIN' || userPermissions?.spending?.view;
@@ -47,7 +52,10 @@ const MainLayout = () => {
     // Data Khách Hàng
     ...(canViewLeads ? [{ path: '/leads', name: 'Data Khách Hàng', icon: MessageSquare }] : []),
     
-    // Đào Tạo & Tài Liệu (MENU MỚI)
+    // Sales CRM (MENU MỚI)
+    ...(canViewSalesCRM ? [{ path: '/sales-crm', name: 'Sales CRM', icon: Target }] : []),
+
+    // Đào Tạo & Tài Liệu
     ...(canViewTraining ? [{ path: '/training', name: 'Đào Tạo & Tài Liệu', icon: BookOpen }] : []),
 
     // Ads Manager
@@ -125,7 +133,8 @@ const MainLayout = () => {
               <Routes>
                 <Route path="/" element={<Dashboard />} />
                 <Route path="/leads" element={<LeadsManager />} />
-                <Route path="/training" element={<TrainingManager />} /> {/* <-- ROUTE MỚI */}
+                <Route path="/sales-crm" element={<SalesCRM />} /> {/* <-- ROUTE MỚI */}
+                <Route path="/training" element={<TrainingManager />} />
                 <Route path="/ads" element={<AdsManager />} />
                 <Route path="/salary" element={<SalaryManager />} />
                 <Route path="/spending" element={<SpendingManager />} />
